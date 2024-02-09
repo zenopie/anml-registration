@@ -5,10 +5,8 @@ use cosmwasm_std::{
 
 use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject, Snip20Msg, ReceiveMsg,
 };
-use crate::state::{State, PARAMS, Params, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, DECLINE, Id, POOL, Pool};
+use crate::state::{State, PARAMS, Params, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, DECLINE, Id,};
 use crate::staking::{try_stake, try_claim_rewards, try_request_unstake, query_stake_info, try_complete_unstake};
-use crate::swap::{try_swap, query_swap_simulation, query_reverse_swap};
-use crate::provide::{try_add_liquidity, try_initialize_pool, query_pool_info, try_claim_provide, try_request_withdraw, try_complete_withdraw};
 
 
 #[entry_point]
@@ -59,18 +57,11 @@ pub fn instantiate(
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     match msg {
-        ExecuteMsg::Upkeep {} => try_upkeep(deps, env),
         ExecuteMsg::Register {user_object} => try_register(deps, env, info, user_object),
         ExecuteMsg::Mint {} => try_mint(deps, env, info),
         ExecuteMsg::ClaimStakingRewards {compound} => try_claim_rewards(deps, env, info, compound),
         ExecuteMsg::RequestUnstake {amount} => try_request_unstake(deps, env, info, amount),
         ExecuteMsg::WithdrawUnstake {} => try_complete_unstake(deps, env, info),
-        ExecuteMsg::AddLiquidity {pool_id, anml_deposit, other_deposit} => try_add_liquidity(deps, env, info, pool_id, anml_deposit, other_deposit),
-        ExecuteMsg::RequestRemoveLiquidity {pool_id, amount} => try_request_withdraw(deps, env, info, pool_id, amount),
-        ExecuteMsg::WithdrawLiquidity {pool_id} => try_complete_withdraw(deps, env, info, pool_id),
-        ExecuteMsg::InitializePool {other_contract, other_hash, initial_anml, initial_other,
-        } => try_initialize_pool(deps, env, info, other_contract, other_hash, initial_anml, initial_other),
-        ExecuteMsg::ClaimProvideRewards {pool_id} => try_claim_provide(deps, env, info, pool_id),
         ExecuteMsg::Receive {sender, from, amount, msg, memo: _,} => try_receive(deps, env, info, sender, from, amount, msg),
     }
 }
@@ -89,7 +80,6 @@ pub fn try_receive(
     // match to the correct function and send varibles
     match msg {
         ReceiveMsg::Stake{compound} => try_stake(deps, env, info, from, amount, compound),
-        ReceiveMsg::Swap {token} => try_swap(deps, info, from, amount, token),
     }   
 }
 
@@ -196,9 +186,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::RegistrationStatus {address} => to_binary(&query_anml_status(deps, address)?),
         QueryMsg::StakeInfo {address} => to_binary(&query_stake_info(deps, env, address)?),
-        QueryMsg::SwapSimulation{input, output, amount} => to_binary(&query_swap_simulation(deps, input, output, amount)?),
-        QueryMsg::ReverseSwapSimulation{input, output, desired_amount} => to_binary(&query_reverse_swap(deps, input, output, desired_amount)?),
-        QueryMsg::PoolInfo{pool_id, address} => to_binary(&query_pool_info(deps, env, pool_id, address)?),
     }
 }
 
@@ -225,84 +212,5 @@ fn query_anml_status(deps: Deps, address: Addr) -> StdResult<RegistrationStatusR
         registration_status: registration_status,
         last_claim: last_claim,
     };
-    Ok(response)
-}
-
-
-
-
-
-pub fn try_upkeep(
-    deps: DepsMut,
-    env: Env,
-) -> StdResult<Response> {
-
-    let mut state = STATE.load(deps.storage)?;
-    let params = PARAMS.load(deps.storage)?;
-
-    let time_since = env.block.time.seconds() - state.last_upkeep.seconds();
-    let amount: Uint256 = Uint256::from(time_since) * Uint256::from(1000000u32);
-
-    // Load pool information.
-    let pool_option: Option<Pool> = POOL.get(deps.storage, &params.erth_contract);
-    let mut pool = pool_option.ok_or(StdError::generic_err("no pool found"))?;
-
-    // Calculate the constant for maintaining liquidity.
-    let constant = pool.anml_balance * pool.other_balance;
-
-    // Calculate the new balances after the swap.
-    let new_other_balance = pool.other_balance + amount;
-    let new_anml_balance = constant / new_other_balance;
-    let token_received = pool.anml_balance - new_anml_balance;
-
-    // Update pool balances.
-    pool.other_balance += amount;
-    pool.anml_balance -= token_received;
-    pool.volume += token_received;
-
-    // Calculate the constant for maintaining liquidity.
-    let constant = pool.anml_balance * pool.other_balance;
-
-    // Calculate the new balances after the swap.
-    let fee_anml_balance = pool.anml_balance + state.fee_balance;
-    let fee_other_balance = constant / fee_anml_balance;
-    let fee_token_received = pool.other_balance - fee_other_balance;
-
-    // Update pool balances.
-    pool.other_balance -= fee_token_received;
-    pool.anml_balance += state.fee_balance;
-    pool.volume += state.fee_balance;
-    state.fee_balance = Uint256::zero();
-
-    POOL.insert(deps.storage, &params.erth_contract, &pool)?;
-    STATE.save(deps.storage, &state)?;
-
-    // Construct the transfer message.
-    let mint_msg = to_binary(&Snip20Msg::mint_msg(env.contract.address, amount))?;
-    let mint_message = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: params.erth_contract.to_string(),
-        code_hash: params.erth_hash.clone(),
-        msg: mint_msg,
-        funds: vec![],
-    });
-    // Construct the transfer message.
-    let burn_anml_msg = to_binary(&Snip20Msg::burn_msg(token_received))?;
-    let burn_anml_message = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: params.anml_contract.to_string(),
-        code_hash: params.anml_hash,
-        msg: burn_anml_msg,
-        funds: vec![],
-    });
-    let burn_erth_msg = to_binary(&Snip20Msg::burn_msg(fee_token_received))?;
-    let burn_erth_message = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: params.erth_contract.to_string(),
-        code_hash: params.erth_hash,
-        msg: burn_erth_msg,
-        funds: vec![],
-    });
-    let response = Response::new()
-        .add_message(mint_message)
-        .add_message(burn_anml_message)
-        .add_message(burn_erth_message);
     Ok(response)
 }

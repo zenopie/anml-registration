@@ -62,30 +62,3 @@ pub struct StakerInfo {
 
 pub static STAKER_INFO: Keymap<Addr, StakerInfo> = Keymap::new(b"staker_info");
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct RewardRateChange {
-    pub rate: Uint256,
-    pub since: Timestamp,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct Pool {
-    pub anml_balance: Uint256,
-    pub other_balance: Uint256,
-    pub other_contract: Addr,
-    pub other_hash: String,
-    pub reward_rate: Vec<RewardRateChange>,
-    pub volume: Uint256,
-    pub shares: Uint256,
-}
-
-pub static POOL: Keymap<Addr, Pool> = Keymap::new(b"pool");
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct ProviderInfo {
-    pub provide_amount: Uint256,
-    pub last_claim: Timestamp,
-    pub withdraw_requests: Option<Vec<UnstakeRequest>>, 
-}
-
-pub static PROVIDER_INFO: Keymap<Addr, ProviderInfo> = Keymap::new(b"provider_info");

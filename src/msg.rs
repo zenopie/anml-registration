@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Uint256, Timestamp, Binary};
-use crate::state::{StakerInfo, ProviderInfo, Pool};
+use crate::state::{StakerInfo,};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -28,33 +28,11 @@ pub struct UserObject {
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Upkeep {},
     Register {user_object: UserObject},
     Mint {},
     ClaimStakingRewards {compound: bool},
     RequestUnstake {amount: Uint256},
     WithdrawUnstake {},
-    InitializePool {
-        other_contract: Addr,
-        other_hash: String,
-        initial_anml: Uint256,
-        initial_other: Uint256,
-    },
-    AddLiquidity {
-        pool_id: Addr,
-        anml_deposit: Uint256,
-        other_deposit: Uint256,
-    },
-    RequestRemoveLiquidity {
-        pool_id: Addr,
-        amount: Uint256,
-    },
-    WithdrawLiquidity {
-        pool_id: Addr,
-    },
-    ClaimProvideRewards {
-        pool_id: Addr,
-    },
     Receive {
         sender: Addr,
         from: Addr,
@@ -68,7 +46,6 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ReceiveMsg {
     Stake {compound: bool},
-    Swap {token: Addr},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
@@ -76,9 +53,6 @@ pub enum ReceiveMsg {
 pub enum QueryMsg {
     RegistrationStatus {address: Addr},
     StakeInfo {address: Addr},
-    SwapSimulation {input: Addr, output: Addr, amount: Uint256},
-    ReverseSwapSimulation {input: Addr, output: Addr, desired_amount: Uint256},
-    PoolInfo {pool_id: Addr, address: Addr,},
 }
 
 // We define a custom struct for each query response
@@ -95,19 +69,6 @@ pub struct StakerInfoResponse {
     pub total_staked: Uint256,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
-pub struct PoolInfoResponse {
-    pub pool: Pool,
-    pub provider_info: Option<ProviderInfo>,
-    pub accumulated_reward: Uint256,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
-pub struct SwapSimulationResponse {
-    pub amount: Uint256,
-    pub scaled_price_impact: Uint256,
-    pub fee: Uint256,
-}
 
 // Messages sent to SNIP-20 contracts
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

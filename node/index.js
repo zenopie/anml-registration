@@ -2,7 +2,7 @@ import { Wallet, SecretNetworkClient, MsgExecuteContract} from "secretjs";
 import * as fs from "fs";
 
 const wallet = new Wallet(
-  "also calm vintage aware poet green keep flock fiscal wrong ankle seek",
+  "",
 );
 
 const url = "https://api.pulsar.scrttestnet.com";

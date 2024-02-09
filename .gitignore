@@ -1,3 +1,5 @@
+/node
+
 # Build results
 /target
 Cargo.lock
@@ -15,3 +17,5 @@ contract.wasm*
 # IDEs
 *.iml
 .idea
+
+
