@@ -86,12 +86,15 @@ pub fn try_receive(
 pub fn try_register(deps: DepsMut, env: Env, info: MessageInfo, user_object: UserObject) -> StdResult<Response> {
     // load params
     let params = PARAMS.load(deps.storage).unwrap();
+
     // check that user is admin
     if info.sender != params.registration_address {
         return Err(StdError::generic_err("not authorized"));
     }
+
     // create namespace for document numbers by country
     let document_numbers_by_country = IDS_BY_DOCUMENT_NUMBER.add_suffix(user_object.country.as_bytes());
+
     // create document object
     let mut id = Id {
         registration_status: "not assigned".to_string(),
@@ -106,8 +109,10 @@ pub fn try_register(deps: DepsMut, env: Env, info: MessageInfo, user_object: Use
         registration_timestamp: env.block.time,
         last_anml_claim: Timestamp::from_nanos(0),
     };
+
     // load state
     let mut state = STATE.load(deps.storage).unwrap();
+
     // check if document is already registered
     let already_registered_option:Option<Id> = document_numbers_by_country.get(deps.storage, &user_object.document_number);
     if already_registered_option.is_some() {
@@ -127,8 +132,10 @@ pub fn try_register(deps: DepsMut, env: Env, info: MessageInfo, user_object: Use
         // update total registration number
         state.registrations += 1;
     }
+
     // save state 
     STATE.save(deps.storage, &state).unwrap();
+
     // add attribute to tell api status of registration
     let response = Response::new()
     .add_attribute("result", id.registration_status);
@@ -138,6 +145,7 @@ pub fn try_register(deps: DepsMut, env: Env, info: MessageInfo, user_object: Use
 pub fn try_mint(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
     // load user data
     let user_data_option: Option<Id> = IDS_BY_ADDRESS.get(deps.storage, &info.sender);
+    
     // if user data exists assign it to the user_data variable
     match user_data_option {
         Some(mut user_data) => {
