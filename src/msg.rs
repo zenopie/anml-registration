@@ -1,8 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Uint256, Timestamp, Binary};
-use crate::state::{StakerInfo,};
+use cosmwasm_std::{Addr, Uint256, Timestamp};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -29,30 +28,13 @@ pub struct UserObject {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Register {user_object: UserObject},
-    Mint {},
-    ClaimStakingRewards {compound: bool},
-    RequestUnstake {amount: Uint256},
-    WithdrawUnstake {},
-    Receive {
-        sender: Addr,
-        from: Addr,
-        amount: Uint256,
-        memo: Option<String>,
-        msg: Binary,
-    },
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ReceiveMsg {
-    Stake {compound: bool},
+    Claim {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     RegistrationStatus {address: Addr},
-    StakeInfo {address: Addr},
 }
 
 // We define a custom struct for each query response
@@ -62,70 +44,21 @@ pub struct RegistrationStatusResponse {
     pub last_claim: Timestamp,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
-pub struct StakerInfoResponse {
-    pub staker_info: Option<StakerInfo>,
-    pub accumulated_reward: Option<Uint256>,
-    pub total_staked: Uint256,
-}
-
 
 // Messages sent to SNIP-20 contracts
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Snip20Msg {
-    RegisterReceive {
-        code_hash: String,
-        padding: Option<String>,
-    },
-    Transfer {
-        recipient: Addr,
-        amount: Uint256,
-        padding: Option<String>,
-    },
     Mint {
         recipient: Addr,
-        amount: Uint256,
-    },
-    TransferFrom {
-        owner: Addr,
-        recipient: Addr,
-        amount: Uint256,
-    },
-    Burn {
         amount: Uint256,
     },
 }
 
 impl Snip20Msg {
-    pub fn register_receive_msg(code_hash: String) -> Self {
-        Snip20Msg::RegisterReceive {
-            code_hash,
-            padding: None, // TODO add padding calculation
-        }
-    }
-    pub fn transfer_snip_msg(recipient: Addr, amount: Uint256) -> Self {
-        Snip20Msg::Transfer {
-            recipient,
-            amount,
-            padding: None, // TODO add padding calculation
-        }
-    }
     pub fn mint_msg(recipient: Addr, amount: Uint256) -> Self {
         Snip20Msg::Mint {
             recipient,
-            amount,
-        }
-    }
-    pub fn transfer_from_msg(owner: Addr, recipient: Addr, amount: Uint256) -> Self {
-        Snip20Msg::TransferFrom {
-            owner,
-            recipient,
-            amount,
-        }
-    }
-    pub fn burn_msg(amount: Uint256) -> Self {
-        Snip20Msg::Burn {
             amount,
         }
     }

@@ -1,12 +1,11 @@
 use cosmwasm_std::{
-    entry_point, to_binary, from_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Timestamp, Addr, CosmosMsg, WasmMsg,
+    entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Timestamp, Addr, CosmosMsg, WasmMsg,
     Uint256,
 };
 
-use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject, Snip20Msg, ReceiveMsg,
+use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject, Snip20Msg,
 };
 use crate::state::{State, PARAMS, Params, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, DECLINE, Id,};
-use crate::staking::{try_stake, try_claim_rewards, try_request_unstake, query_stake_info, try_complete_unstake};
 
 
 #[entry_point]
@@ -19,13 +18,10 @@ pub fn instantiate(
     let state = State {
         registrations: 0,
         declines: 0,
-        total_erth_staked: Uint256::from(1000000u32), //divide by zero prevention
         last_upkeep: env.block.time,
-        fee_balance: Uint256::zero(),
     };
     STATE.save(deps.storage, &state)?;
     let params = Params {
-        scaled_swap_fee: Uint256::from(100u32),
         registration_address: msg.registration_address,
         max_registrations: 50,
         erth_contract: msg.erth_contract,
@@ -35,22 +31,8 @@ pub fn instantiate(
     };
     PARAMS.save(deps.storage, &params)?;
     
-    let msg = to_binary(&Snip20Msg::register_receive_msg(env.contract.code_hash))?;
-    let anml_register_message = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: params.anml_contract.to_string(),
-        code_hash: params.anml_hash,
-        msg: msg.clone(),
-        funds: vec![],
-    });
-    let erth_register_message = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: params.erth_contract.to_string(),
-        code_hash: params.erth_hash,
-        msg: msg,
-        funds: vec![],
-    });
     let response = Response::new()
-    .add_message(anml_register_message)
-    .add_message(erth_register_message);
+    .add_attribute("result", "success");
     Ok(response)
 }
 
@@ -58,29 +40,8 @@ pub fn instantiate(
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     match msg {
         ExecuteMsg::Register {user_object} => try_register(deps, env, info, user_object),
-        ExecuteMsg::Mint {} => try_mint(deps, env, info),
-        ExecuteMsg::ClaimStakingRewards {compound} => try_claim_rewards(deps, env, info, compound),
-        ExecuteMsg::RequestUnstake {amount} => try_request_unstake(deps, env, info, amount),
-        ExecuteMsg::WithdrawUnstake {} => try_complete_unstake(deps, env, info),
-        ExecuteMsg::Receive {sender, from, amount, msg, memo: _,} => try_receive(deps, env, info, sender, from, amount, msg),
+        ExecuteMsg::Claim {} => try_claim(deps, env, info),
     }
-}
-
-pub fn try_receive(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    _sender: Addr,
-    from: Addr,
-    amount: Uint256,
-    msg: Binary,
-) -> Result<Response, StdError> {
-    // get msg from snip recieve 
-    let msg: ReceiveMsg = from_binary(&msg)?;
-    // match to the correct function and send varibles
-    match msg {
-        ReceiveMsg::Stake{compound} => try_stake(deps, env, info, from, amount, compound),
-    }   
 }
 
 pub fn try_register(deps: DepsMut, env: Env, info: MessageInfo, user_object: UserObject) -> StdResult<Response> {
@@ -142,7 +103,7 @@ pub fn try_register(deps: DepsMut, env: Env, info: MessageInfo, user_object: Use
     Ok(response)
 }
 
-pub fn try_mint(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
+pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
     // load user data
     let user_data_option: Option<Id> = IDS_BY_ADDRESS.get(deps.storage, &info.sender);
     
@@ -190,10 +151,9 @@ pub fn try_mint(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Respons
 }
 
 #[entry_point]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::RegistrationStatus {address} => to_binary(&query_anml_status(deps, address)?),
-        QueryMsg::StakeInfo {address} => to_binary(&query_stake_info(deps, env, address)?),
     }
 }
 
