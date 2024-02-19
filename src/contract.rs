@@ -24,8 +24,6 @@ pub fn instantiate(
     let params = Params {
         registration_address: msg.registration_address,
         max_registrations: 50,
-        erth_contract: msg.erth_contract,
-        erth_hash: msg.erth_hash,
         anml_contract: msg.anml_contract,
         anml_hash: msg.anml_hash,
     };

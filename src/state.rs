@@ -17,8 +17,6 @@ pub static STATE: Item<State> = Item::new(b"state");
 pub struct Params {
     pub registration_address: Addr,
     pub max_registrations: u128,
-    pub erth_contract: Addr,
-    pub erth_hash: String,
     pub anml_contract: Addr,
     pub anml_hash: String,
 }

@@ -8,8 +8,6 @@ pub struct InstantiateMsg {
     pub registration_address: Addr,
     pub anml_contract: Addr,
     pub anml_hash: String,
-    pub erth_contract: Addr,
-    pub erth_hash: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
