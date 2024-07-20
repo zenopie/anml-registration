@@ -1,13 +1,15 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Uint256, Timestamp};
+use cosmwasm_std::{Addr, Uint128, Timestamp};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub registration_address: Addr,
     pub anml_contract: Addr,
     pub anml_hash: String,
+    pub erth_contract: Addr,
+    pub erth_hash: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -27,6 +29,12 @@ pub struct UserObject {
 pub enum ExecuteMsg {
     Register {user_object: UserObject},
     Claim {},
+    SetAllocation {
+        percentages: Vec<AllocationPercentage>,
+    },
+    AddAllocationOption {
+        address: Addr,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
@@ -49,12 +57,12 @@ pub struct RegistrationStatusResponse {
 pub enum Snip20Msg {
     Mint {
         recipient: Addr,
-        amount: Uint256,
+        amount: Uint128,
     },
 }
 
 impl Snip20Msg {
-    pub fn mint_msg(recipient: Addr, amount: Uint256) -> Self {
+    pub fn mint_msg(recipient: Addr, amount: Uint128) -> Self {
         Snip20Msg::Mint {
             recipient,
             amount,

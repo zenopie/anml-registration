@@ -1,11 +1,12 @@
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Timestamp, Addr, CosmosMsg, WasmMsg,
-    Uint256,
+    Uint128,
 };
 
 use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject, Snip20Msg,
-};
-use crate::state::{State, PARAMS, Params, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, DECLINE, Id,};
+AllocationPercentage};
+use crate::state::{State, PARAMS, Params, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, DECLINE, Id,
+ALLOCATION_OPTIONS, INDIVIDUAL_PERCENTAGES, INDIVIDUAL_ALLOCATIONS, Allocation};
 
 
 #[entry_point]
@@ -19,6 +20,7 @@ pub fn instantiate(
         registrations: 0,
         declines: 0,
         last_upkeep: env.block.time,
+        total_allocations: Uint128::zero(),
     };
     STATE.save(deps.storage, &state)?;
     let params = Params {
@@ -29,9 +31,7 @@ pub fn instantiate(
     };
     PARAMS.save(deps.storage, &params)?;
     
-    let response = Response::new()
-    .add_attribute("result", "success");
-    Ok(response)
+    Ok(Response::default())
 }
 
 #[entry_point]
@@ -120,13 +120,13 @@ pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Respon
             let midnight_timestamp = Timestamp::from_seconds(midnight_calculation);
             user_data.last_anml_claim = midnight_timestamp;
             // save last claim
-            IDS_BY_ADDRESS.insert(deps.storage, &info.sender, &user_data).unwrap();
+            IDS_BY_ADDRESS.insert(deps.storage, &info.sender, &user_data)?;
             // load state
             let params = PARAMS.load(deps.storage).unwrap();
             // Create the message to send to the other contract
             let msg = to_binary(&Snip20Msg::mint_msg(
                 info.sender.clone(),
-                Uint256::from(1000000u32),
+                Uint128::from(1000000u32),
             ))?;
             // Create the contract execution message
             let execute_msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -147,6 +147,7 @@ pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Respon
         }
     }
 }
+
 
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {

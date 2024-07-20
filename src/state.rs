@@ -1,14 +1,17 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Timestamp};
+use cosmwasm_std::{Addr, Timestamp, Uint128};
 use secret_toolkit_storage::{Keymap, Item};
+
+use crate::msg::{AllocationPercentage};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct State {
     pub registrations: u128,
     pub declines: u128,
     pub last_upkeep: Timestamp,
+    pub total_allocations: Uint128
 }
 
 pub static STATE: Item<State> = Item::new(b"state");
