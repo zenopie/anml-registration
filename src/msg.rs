@@ -6,6 +6,7 @@ use cosmwasm_std::{Addr, Uint128, Timestamp};
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub registration_address: Addr,
+    pub manager_address: Addr,
     pub anml_contract: Addr,
     pub anml_hash: String,
     pub erth_contract: Addr,
@@ -24,17 +25,22 @@ pub struct UserObject {
     pub document_expiration: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct UpdateStateMsg {
+    pub registrations: Option<u32>,
+    pub registration_address: Option<Addr>,
+    pub manager_address: Option<Addr>,
+    pub max_registrations: Option<u32>,
+    pub anml_contract: Option<Addr>,
+    pub anml_hash: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    UpdateState {msg: UpdateStateMsg},
     Register {user_object: UserObject},
     Claim {},
-    SetAllocation {
-        percentages: Vec<AllocationPercentage>,
-    },
-    AddAllocationOption {
-        address: Addr,
-    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]

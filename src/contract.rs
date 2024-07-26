@@ -4,57 +4,105 @@ use cosmwasm_std::{
 };
 
 use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject, Snip20Msg,
-AllocationPercentage};
-use crate::state::{State, PARAMS, Params, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, DECLINE, Id,
-ALLOCATION_OPTIONS, INDIVIDUAL_PERCENTAGES, INDIVIDUAL_ALLOCATIONS, Allocation};
+    UpdateStateMsg,
+};
+use crate::state::{State, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, Id,};
 
 
 #[entry_point]
 pub fn instantiate(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> StdResult<Response> {
     let state = State {
         registrations: 0,
-        declines: 0,
-        last_upkeep: env.block.time,
-        total_allocations: Uint128::zero(),
-    };
-    STATE.save(deps.storage, &state)?;
-    let params = Params {
+        manager_address: msg.manager_address,
         registration_address: msg.registration_address,
         max_registrations: 50,
         anml_contract: msg.anml_contract,
         anml_hash: msg.anml_hash,
     };
-    PARAMS.save(deps.storage, &params)?;
-    
+    STATE.save(deps.storage, &state)?;
+
     Ok(Response::default())
 }
 
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     match msg {
+        ExecuteMsg::UpdateState {msg} => execute_update_state(deps, env, info, msg),
         ExecuteMsg::Register {user_object} => try_register(deps, env, info, user_object),
         ExecuteMsg::Claim {} => try_claim(deps, env, info),
     }
 }
 
-pub fn try_register(deps: DepsMut, env: Env, info: MessageInfo, user_object: UserObject) -> StdResult<Response> {
-    // load params
-    let params = PARAMS.load(deps.storage).unwrap();
+pub fn execute_update_state(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    msg: UpdateStateMsg,
+) -> Result<Response, StdError> {
+    // Load the state
+    let mut state = STATE.load(deps.storage)?;
 
-    // check that user is admin
-    if info.sender != params.registration_address {
+    // Only allow the contract manager to update the state
+    if info.sender != state.manager_address {
+        return Err(StdError::generic_err("unauthorized"));
+    }
+
+    if let Some(registrations) = msg.registrations {
+        state.registrations = registrations;
+    }
+    if let Some(registration_address) = msg.registration_address {
+        state.registration_address = registration_address;
+    }
+    if let Some(manager_address) = msg.manager_address {
+        state.manager_address = manager_address;
+    }
+    if let Some(max_registrations) = msg.max_registrations {
+        state.max_registrations = max_registrations;
+    }
+    if let Some(anml_contract) = msg.anml_contract {
+        state.anml_contract = anml_contract;
+    }
+    if let Some(anml_hash) = msg.anml_hash {
+        state.anml_hash = anml_hash;
+    }
+
+    // Save the updated state
+    STATE.save(deps.storage, &state)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "update_state")
+        .add_attribute("registrations", state.registrations.to_string())
+        .add_attribute("registration_address", state.registration_address.to_string())
+        .add_attribute("manager_address", state.manager_address.to_string())
+        .add_attribute("max_registrations", state.max_registrations.to_string())
+        .add_attribute("anml_contract", state.anml_contract.to_string())
+        .add_attribute("anml_hash", state.anml_hash.clone()))
+}
+
+
+pub fn try_register(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    user_object: UserObject,
+) -> StdResult<Response> {
+    let mut state = STATE.load(deps.storage)?;
+
+    // Check if the sender is authorized
+    if info.sender != state.registration_address {
         return Err(StdError::generic_err("not authorized"));
     }
 
-    // create namespace for document numbers by country
-    let document_numbers_by_country = IDS_BY_DOCUMENT_NUMBER.add_suffix(user_object.country.as_bytes());
+    // Create namespace for document numbers by country
+    let document_numbers_by_country =
+        IDS_BY_DOCUMENT_NUMBER.add_suffix(user_object.country.as_bytes());
 
-    // create document object
+    // Create document object
     let mut id = Id {
         registration_status: "not assigned".to_string(),
         country: user_object.country,
@@ -69,115 +117,85 @@ pub fn try_register(deps: DepsMut, env: Env, info: MessageInfo, user_object: Use
         last_anml_claim: Timestamp::from_nanos(0),
     };
 
-    // load state
-    let mut state = STATE.load(deps.storage).unwrap();
-
-    // check if document is already registered
-    let already_registered_option:Option<Id> = document_numbers_by_country.get(deps.storage, &user_object.document_number);
-    if already_registered_option.is_some() {
-        // document already registered, set registration status to declined
+    // Check if document is already registered
+    if document_numbers_by_country
+        .get(deps.storage, &user_object.document_number)
+        .is_some()
+    {
+        // Document already registered, set registration status to declined
         id.registration_status = "document already registered".to_string();
-        // save to declined registration storage
-        DECLINE.insert(deps.storage, &user_object.address, &id).unwrap();
-        // update total registration number
-        state.declines += 1;
     } else {
-        // document is not registed, set registration status to registered
+        // Document is not registered, set registration status to registered
         id.registration_status = "registered".to_string();
-        // save valid registration to document numbers by country storage to check for future duplicates
-        document_numbers_by_country.insert(deps.storage, &user_object.document_number, &id).unwrap();
-        // save valid registration to ids by address to associate with address for proof of humanity check
-        IDS_BY_ADDRESS.insert(deps.storage, &user_object.address, &id).unwrap();
-        // update total registration number
+        document_numbers_by_country.insert(deps.storage, &user_object.document_number, &id)?;
+        IDS_BY_ADDRESS.insert(deps.storage, &user_object.address, &id)?;
         state.registrations += 1;
     }
 
-    // save state 
-    STATE.save(deps.storage, &state).unwrap();
+    // Save state
+    STATE.save(deps.storage, &state)?;
 
-    // add attribute to tell api status of registration
-    let response = Response::new()
-    .add_attribute("result", id.registration_status);
+    // Add attribute to tell API status of registration
+    let response = Response::new().add_attribute("result", id.registration_status);
     Ok(response)
 }
 
 pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
-    // load user data
-    let user_data_option: Option<Id> = IDS_BY_ADDRESS.get(deps.storage, &info.sender);
-    
-    // if user data exists assign it to the user_data variable
-    match user_data_option {
-        Some(mut user_data) => {
-            //find elapsed time since last claim
-            let elapsed_time = env.block.time.seconds() - user_data.last_anml_claim.seconds();
-            // compare elapsed time with 1 day (86400 seconds)
-            let seconds_in_a_day = 86400;
-            if elapsed_time < seconds_in_a_day {
-                // If less than one day has passed, return an error
-                return Err(StdError::generic_err("One day hasn't passed since the last claim"));
-            }
-            let midnight_calculation = (env.block.time.seconds() / seconds_in_a_day) * seconds_in_a_day;
-            let midnight_timestamp = Timestamp::from_seconds(midnight_calculation);
-            user_data.last_anml_claim = midnight_timestamp;
-            // save last claim
-            IDS_BY_ADDRESS.insert(deps.storage, &info.sender, &user_data)?;
-            // load state
-            let params = PARAMS.load(deps.storage).unwrap();
-            // Create the message to send to the other contract
-            let msg = to_binary(&Snip20Msg::mint_msg(
-                info.sender.clone(),
-                Uint128::from(1000000u32),
-            ))?;
-            // Create the contract execution message
-            let execute_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: params.anml_contract.to_string(),
-                code_hash: params.anml_hash.to_string(),
-                funds: vec![],
-                msg: msg,
-            });
-            // Return the execution message in the Response
-            let response = Response::new()
+    if let Some(mut user_data) = IDS_BY_ADDRESS.get(deps.storage, &info.sender) {
+        let elapsed_time = env.block.time.seconds() - user_data.last_anml_claim.seconds();
+        let seconds_in_a_day = 86400;
+        if elapsed_time < seconds_in_a_day {
+            return Err(StdError::generic_err(
+                "One day hasn't passed since the last claim",
+            ));
+        }
+
+        let midnight_timestamp = Timestamp::from_seconds((env.block.time.seconds() / seconds_in_a_day) * seconds_in_a_day);
+        user_data.last_anml_claim = midnight_timestamp;
+        IDS_BY_ADDRESS.insert(deps.storage, &info.sender, &user_data)?;
+
+        let state = STATE.load(deps.storage)?;
+
+        let msg = to_binary(&Snip20Msg::mint_msg(info.sender.clone(), Uint128::from(1000000u32)))?;
+        let execute_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: state.anml_contract.to_string(),
+            code_hash: state.anml_hash.clone(),
+            funds: vec![],
+            msg,
+        });
+
+        let response = Response::new()
             .add_attribute("result", "success")
             .add_message(execute_msg);
-            Ok(response)
-        },
-        None => {
-            // Return an error if user_data_option is None
-            return Err(StdError::generic_err("User data not found"))
-        }
+        Ok(response)
+    } else {
+        Err(StdError::generic_err("User data not found"))
     }
 }
-
 
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::RegistrationStatus {address} => to_binary(&query_anml_status(deps, address)?),
+        QueryMsg::RegistrationStatus { address } => to_binary(&query_anml_status(deps, address)?),
     }
 }
 
 fn query_anml_status(deps: Deps, address: Addr) -> StdResult<RegistrationStatusResponse> {
-    // initiate variable for sendback
     let registration_status;
     let last_claim;
-    // see if address is registered
-    let user_data_option:Option<Id> = IDS_BY_ADDRESS.get(deps.storage, &address);
-    match user_data_option {
-        Some(user_data) => {
-            // address is registered
-            registration_status = "registered".to_string();
-            // send claim timestamp
-            last_claim = user_data.last_anml_claim;
-        },
-        None => {
-            // address isn't registed
-            registration_status = "not_registed".to_string();
-            last_claim = Timestamp::default();
-        }  
-    } 
+
+    if let Some(user_data) = IDS_BY_ADDRESS.get(deps.storage, &address) {
+        registration_status = "registered".to_string();
+        last_claim = user_data.last_anml_claim;
+    } else {
+        registration_status = "not_registered".to_string();
+        last_claim = Timestamp::default();
+    }
+
     let response = RegistrationStatusResponse {
-        registration_status: registration_status,
-        last_claim: last_claim,
+        registration_status,
+        last_claim,
     };
     Ok(response)
 }
+
