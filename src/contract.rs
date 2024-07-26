@@ -4,7 +4,7 @@ use cosmwasm_std::{
 };
 
 use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject, Snip20Msg,
-    UpdateStateMsg,
+    UpdateStateMsg, StateResponse,
 };
 use crate::state::{State, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, Id,};
 
@@ -176,8 +176,14 @@ pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Respon
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
+        QueryMsg::QueryState {} => to_binary(&query_state(deps)?),
         QueryMsg::RegistrationStatus { address } => to_binary(&query_anml_status(deps, address)?),
     }
+}
+
+fn query_state(deps: Deps) -> StdResult<StateResponse> {
+    let state = STATE.load(deps.storage)?;
+    Ok(StateResponse { state: state })
 }
 
 fn query_anml_status(deps: Deps, address: Addr) -> StdResult<RegistrationStatusResponse> {

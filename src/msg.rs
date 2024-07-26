@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Uint128, Timestamp};
 
+use crate::state::State;
+
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub registration_address: Addr,
@@ -46,6 +48,7 @@ pub enum ExecuteMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
+    QueryState {},
     RegistrationStatus {address: Addr},
 }
 
@@ -56,6 +59,10 @@ pub struct RegistrationStatusResponse {
     pub last_claim: Timestamp,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct StateResponse {
+    pub state: State,
+}
 
 // Messages sent to SNIP-20 contracts
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
