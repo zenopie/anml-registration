@@ -98,6 +98,11 @@ pub fn try_register(
         return Err(StdError::generic_err("not authorized"));
     }
 
+    // Check if registrations are maxed out
+    if state.registrations >= state.max_registrations {
+        return Err(StdError::generic_err("max registrations"));
+    }
+
     // Create namespace for document numbers by country
     let document_numbers_by_country =
         IDS_BY_DOCUMENT_NUMBER.add_suffix(user_object.country.as_bytes());
