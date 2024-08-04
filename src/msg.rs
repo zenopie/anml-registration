@@ -53,7 +53,7 @@ pub enum QueryMsg {
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 pub struct RegistrationStatusResponse {
-    pub registration_status: String,
+    pub registration_status: bool,
     pub last_claim: Timestamp,
 }
 

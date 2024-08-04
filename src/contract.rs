@@ -196,10 +196,10 @@ fn query_anml_status(deps: Deps, address: Addr) -> StdResult<RegistrationStatusR
     let last_claim;
 
     if let Some(user_data) = IDS_BY_ADDRESS.get(deps.storage, &address) {
-        registration_status = "registered".to_string();
+        registration_status = true;
         last_claim = user_data.last_anml_claim;
     } else {
-        registration_status = "not_registered".to_string();
+        registration_status = false;
         last_claim = Timestamp::default();
     }
 
