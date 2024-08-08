@@ -1,6 +1,6 @@
 [package]
-name = "secret_contract_example"
-version = "0.1.0"
+name = "anml-registration"
+version = "0.0.1"
 authors = ["SecretTemplateExample"]
 edition = "2021"
 

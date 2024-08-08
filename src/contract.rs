@@ -4,7 +4,7 @@ use cosmwasm_std::{
 };
 
 use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject, Snip20Msg,
-    UpdateStateMsg, StateResponse,
+    UpdateStateMsg, StateResponse, MigrateMsg,
 };
 use crate::state::{State, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, Id,};
 
@@ -52,24 +52,13 @@ pub fn execute_update_state(
         return Err(StdError::generic_err("unauthorized"));
     }
 
-    if let Some(registrations) = msg.registrations {
-        state.registrations = registrations;
-    }
-    if let Some(registration_address) = msg.registration_address {
-        state.registration_address = registration_address;
-    }
-    if let Some(manager_address) = msg.manager_address {
-        state.manager_address = manager_address;
-    }
-    if let Some(max_registrations) = msg.max_registrations {
-        state.max_registrations = max_registrations;
-    }
-    if let Some(anml_contract) = msg.anml_contract {
-        state.anml_contract = anml_contract;
-    }
-    if let Some(anml_hash) = msg.anml_hash {
-        state.anml_hash = anml_hash;
-    }
+    // Update state fields using unwrap_or
+    state.registrations = msg.registrations.unwrap_or(state.registrations);
+    state.registration_address = msg.registration_address.unwrap_or(state.registration_address);
+    state.manager_address = msg.manager_address.unwrap_or(state.manager_address);
+    state.max_registrations = msg.max_registrations.unwrap_or(state.max_registrations);
+    state.anml_contract = msg.anml_contract.unwrap_or(state.anml_contract);
+    state.anml_hash = msg.anml_hash.unwrap_or(state.anml_hash);
 
     // Save the updated state
     STATE.save(deps.storage, &state)?;
@@ -83,6 +72,7 @@ pub fn execute_update_state(
         .add_attribute("anml_contract", state.anml_contract.to_string())
         .add_attribute("anml_hash", state.anml_hash.clone()))
 }
+
 
 
 pub fn try_register(
@@ -176,6 +166,12 @@ pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Respon
     } else {
         Err(StdError::generic_err("User data not found"))
     }
+}
+
+#[entry_point]
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+    // Migration logic goes here
+    Ok(Response::new().add_attribute("method", "migrate"))
 }
 
 #[entry_point]
