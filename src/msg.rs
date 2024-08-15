@@ -1,16 +1,20 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Uint128, Timestamp};
+use cosmwasm_std::{Addr, Timestamp};
 
 use crate::state::State;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub registration_address: Addr,
-    pub manager_address: Addr,
-    pub anml_contract: Addr,
-    pub anml_hash: String,
+    pub registration_address: String,
+    pub contract_manager: String,
+    pub anml_token_contract: String,
+    pub anml_token_hash: String,
+    pub erth_token_contract: String,
+    pub erth_token_hash: String,
+    pub anml_pool_contract: String,
+    pub anml_pool_hash: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -25,28 +29,33 @@ pub struct UserObject {
     pub document_expiration: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct UpdateStateMsg {
-    pub registrations: Option<u32>,
-    pub registration_address: Option<Addr>,
-    pub manager_address: Option<Addr>,
-    pub max_registrations: Option<u32>,
-    pub anml_contract: Option<Addr>,
-    pub anml_hash: Option<String>,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    UpdateState {msg: UpdateStateMsg},
+    UpdateState {
+        key: String,
+        value: String,
+    },
     Register {user_object: UserObject},
     Claim {},
+}
+
+/// This struct represents the message to send to the other contract.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SendMsg {
+    AnmlBuyback {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrateMsg {
-    Migrate {},
+    Migrate {
+        erth_token_contract: String,
+        erth_token_hash: String,
+        anml_pool_contract: String,
+        anml_pool_hash: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
@@ -66,25 +75,6 @@ pub struct RegistrationStatusResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct StateResponse {
     pub state: State,
-}
-
-// Messages sent to SNIP-20 contracts
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Snip20Msg {
-    Mint {
-        recipient: Addr,
-        amount: Uint128,
-    },
-}
-
-impl Snip20Msg {
-    pub fn mint_msg(recipient: Addr, amount: Uint128) -> Self {
-        Snip20Msg::Mint {
-            recipient,
-            amount,
-        }
-    }
 }
 
 

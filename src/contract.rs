@@ -1,28 +1,40 @@
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Timestamp, Addr, CosmosMsg, WasmMsg,
-    Uint128,
 };
+use secret_toolkit::snip20;
 
-use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject, Snip20Msg,
-    UpdateStateMsg, StateResponse, MigrateMsg,
+
+use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject,
+    StateResponse, MigrateMsg, SendMsg,
 };
-use crate::state::{State, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, Id,};
+use crate::state::{State, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, Id, OLD_STATE};
 
 
 #[entry_point]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> StdResult<Response> {
+    let registration_address_addr = deps.api.addr_validate(&msg.registration_address)?;
+    let anml_token_contract_addr = deps.api.addr_validate(&msg.anml_token_contract)?;
+    let erth_token_contract_addr = deps.api.addr_validate(&msg.erth_token_contract)?;
+    let contract_manager_addr = deps.api.addr_validate(&msg.contract_manager)?;
+    let anml_pool_contract_addr = deps.api.addr_validate(&msg.anml_pool_contract)?;
+
     let state = State {
         registrations: 0,
-        manager_address: msg.manager_address,
-        registration_address: msg.registration_address,
+        contract_manager: contract_manager_addr,
+        registration_address: registration_address_addr,
         max_registrations: 50,
-        anml_contract: msg.anml_contract,
-        anml_hash: msg.anml_hash,
+        anml_token_contract: anml_token_contract_addr,
+        anml_token_hash: msg.anml_token_hash,
+        erth_token_contract: erth_token_contract_addr,
+        erth_token_hash: msg.erth_token_hash,
+        anml_pool_contract: anml_pool_contract_addr,
+        anml_pool_hash: msg.anml_pool_hash,
+        last_anml_buyback: env.block.time,
     };
     STATE.save(deps.storage, &state)?;
 
@@ -32,46 +44,13 @@ pub fn instantiate(
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     match msg {
-        ExecuteMsg::UpdateState {msg} => execute_update_state(deps, env, info, msg),
+        ExecuteMsg::UpdateState {key, value} => execute_update_state(deps, env, info, key, value),
         ExecuteMsg::Register {user_object} => try_register(deps, env, info, user_object),
         ExecuteMsg::Claim {} => try_claim(deps, env, info),
     }
 }
 
-pub fn execute_update_state(
-    deps: DepsMut,
-    _env: Env,
-    info: MessageInfo,
-    msg: UpdateStateMsg,
-) -> Result<Response, StdError> {
-    // Load the state
-    let mut state = STATE.load(deps.storage)?;
 
-    // Only allow the contract manager to update the state
-    if info.sender != state.manager_address {
-        return Err(StdError::generic_err("unauthorized"));
-    }
-
-    // Update state fields using unwrap_or
-    state.registrations = msg.registrations.unwrap_or(state.registrations);
-    state.registration_address = msg.registration_address.unwrap_or(state.registration_address);
-    state.manager_address = msg.manager_address.unwrap_or(state.manager_address);
-    state.max_registrations = msg.max_registrations.unwrap_or(state.max_registrations);
-    state.anml_contract = msg.anml_contract.unwrap_or(state.anml_contract);
-    state.anml_hash = msg.anml_hash.unwrap_or(state.anml_hash);
-
-    // Save the updated state
-    STATE.save(deps.storage, &state)?;
-
-    Ok(Response::new()
-        .add_attribute("action", "update_state")
-        .add_attribute("registrations", state.registrations.to_string())
-        .add_attribute("registration_address", state.registration_address.to_string())
-        .add_attribute("manager_address", state.manager_address.to_string())
-        .add_attribute("max_registrations", state.max_registrations.to_string())
-        .add_attribute("anml_contract", state.anml_contract.to_string())
-        .add_attribute("anml_hash", state.anml_hash.clone()))
-}
 
 
 
@@ -151,27 +130,146 @@ pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Respon
 
         let state = STATE.load(deps.storage)?;
 
-        let msg = to_binary(&Snip20Msg::mint_msg(info.sender.clone(), Uint128::from(1000000u32)))?;
-        let execute_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: state.anml_contract.to_string(),
-            code_hash: state.anml_hash.clone(),
+        let buyback_elapsed = env.block.time.seconds() - state.last_anml_buyback.seconds();
+
+        let mut messages = vec![];
+
+        // Create messages for transferring tokens from the user to the contract using allowances
+        let mint_anml = snip20::HandleMsg::Mint {
+            recipient: info.sender.clone().to_string(),
+            amount: 1000000u32.into(),
+            padding: None,
+            memo: None,
+        };
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: state.anml_token_contract.to_string(),
+            code_hash: state.anml_token_hash.clone(),
+            msg: to_binary(&mint_anml)?,
             funds: vec![],
-            msg,
-        });
+        }));
+        // Create messages for minting ERTH for the ANML buyback
+        let mint_erth = snip20::HandleMsg::Mint {
+            recipient: env.contract.address.to_string(),
+            amount: buyback_elapsed.into(),
+            padding: None,
+            memo: None,
+        };
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: state.erth_token_contract.to_string(),
+            code_hash: state.erth_token_hash.clone(),
+            msg: to_binary(&mint_erth)?,
+            funds: vec![],
+        }));
+        // Swap Erth for ANML
+        let swap_msg = snip20::HandleMsg::Send {
+            recipient: state.anml_pool_contract.to_string(),
+            recipient_code_hash: Some(state.anml_token_hash.clone()),
+            amount: buyback_elapsed.into(),
+            msg: Some(to_binary(&SendMsg::AnmlBuyback {})?),
+            memo: None,
+            padding: None,
+        };
+
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: state.anml_token_contract.to_string(),
+            code_hash: state.anml_token_hash.clone(),
+            msg: to_binary(&swap_msg)?,
+            funds: vec![],
+        }));
+      
 
         let response = Response::new()
-            .add_attribute("result", "success")
-            .add_message(execute_msg);
+            .add_messages(messages)
+            .add_attribute("result", "success");
         Ok(response)
     } else {
-        Err(StdError::generic_err("User data not found"))
+        return Err(StdError::generic_err("User data not found"))
     }
 }
 
+pub fn execute_update_state(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    key: String,
+    value: String,
+) -> Result<Response, StdError> {
+    let mut state = STATE.load(deps.storage)?;
+
+    if info.sender != state.contract_manager {
+        return Err(StdError::generic_err("unauthorized"));
+    }
+
+    match key.as_str() {
+        "contract_manager" => {
+            state.contract_manager = deps.api.addr_validate(&value)?;
+        }
+        "registration_address" => {
+            state.registration_address = deps.api.addr_validate(&value)?;
+        }
+        "max_registrations" => {
+            let max_registrations: u32 = value.parse().map_err(|_| StdError::generic_err("Invalid max_registrations"))?;
+            state.max_registrations = max_registrations;
+        }
+        "anml_token_hash" => {
+            state.anml_token_hash = value.clone();
+        }
+        "erth_token_hash" => {
+            state.erth_token_hash = value.clone();
+        }
+        "anml_pool_contract" => {
+            state.anml_pool_contract = deps.api.addr_validate(&value)?;
+        }
+        "anml_pool_hash" => {
+            state.anml_pool_hash = value.clone();
+        }
+        _ => return Err(StdError::generic_err("Invalid state key")),
+    }
+
+    STATE.save(deps.storage, &state)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "update_state")
+        .add_attribute("key", key)
+        .add_attribute("value", value))
+}
+
+
 #[entry_point]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
-    // Migration logic goes here
-    Ok(Response::new().add_attribute("method", "migrate"))
+pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> StdResult<Response> {
+    match msg {
+        MigrateMsg::Migrate {
+            erth_token_contract,
+            erth_token_hash,
+            anml_pool_contract,
+            anml_pool_hash,
+        } => {
+
+            let erth_token_contract_addr = deps.api.addr_validate(&erth_token_contract)?;
+            let anml_pool_contract_addr = deps.api.addr_validate(&anml_pool_contract)?;
+
+            let old_state = OLD_STATE.load(deps.storage)?;
+
+            // Migrate to the new state by creating a new struct instance
+            let new_state = State {
+                registrations: old_state.registrations,
+                registration_address: old_state.registration_address,
+                contract_manager: old_state.manager_address,
+                max_registrations: old_state.max_registrations,
+                anml_token_contract: old_state.anml_contract,
+                anml_token_hash: old_state.anml_hash,
+                erth_token_contract: erth_token_contract_addr,
+                erth_token_hash: erth_token_hash,
+                anml_pool_contract: anml_pool_contract_addr,
+                anml_pool_hash: anml_pool_hash,
+                last_anml_buyback: env.block.time,
+            };
+            // Save state
+            STATE.save(deps.storage, &new_state)?;
+
+            Ok(Response::new().add_attribute("action", "migrate"))
+        }
+    }
 }
 
 #[entry_point]
