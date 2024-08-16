@@ -7,7 +7,7 @@ use secret_toolkit::snip20;
 use crate::msg::{RegistrationStatusResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UserObject,
     StateResponse, MigrateMsg, SendMsg,
 };
-use crate::state::{State, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, Id, OLD_STATE};
+use crate::state::{State, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER, STATE, Id,};
 
 
 #[entry_point]
@@ -236,36 +236,9 @@ pub fn execute_update_state(
 
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> StdResult<Response> {
+pub fn migrate(_deps: DepsMut, _env: Env, msg: MigrateMsg) -> StdResult<Response> {
     match msg {
-        MigrateMsg::Migrate {
-            erth_token_contract,
-            erth_token_hash,
-            anml_pool_contract,
-            anml_pool_hash,
-        } => {
-
-            let erth_token_contract_addr = deps.api.addr_validate(&erth_token_contract)?;
-            let anml_pool_contract_addr = deps.api.addr_validate(&anml_pool_contract)?;
-
-            let old_state = OLD_STATE.load(deps.storage)?;
-
-            // Migrate to the new state by creating a new struct instance
-            let new_state = State {
-                registrations: old_state.registrations,
-                registration_address: old_state.registration_address,
-                contract_manager: old_state.manager_address,
-                max_registrations: old_state.max_registrations,
-                anml_token_contract: old_state.anml_contract,
-                anml_token_hash: old_state.anml_hash,
-                erth_token_contract: erth_token_contract_addr,
-                erth_token_hash: erth_token_hash,
-                anml_pool_contract: anml_pool_contract_addr,
-                anml_pool_hash: anml_pool_hash,
-                last_anml_buyback: env.block.time,
-            };
-            // Save state
-            STATE.save(deps.storage, &new_state)?;
+        MigrateMsg::Migrate {} => {
 
             Ok(Response::new().add_attribute("action", "migrate"))
         }

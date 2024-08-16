@@ -50,12 +50,7 @@ pub enum SendMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrateMsg {
-    Migrate {
-        erth_token_contract: String,
-        erth_token_hash: String,
-        anml_pool_contract: String,
-        anml_pool_hash: String,
-    },
+    Migrate {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
