@@ -163,7 +163,7 @@ pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Respon
         // Swap Erth for ANML
         let swap_msg = snip20::HandleMsg::Send {
             recipient: state.anml_pool_contract.to_string(),
-            recipient_code_hash: Some(state.anml_token_hash.clone()),
+            recipient_code_hash: Some(state.anml_pool_hash.clone()),
             amount: buyback_elapsed.into(),
             msg: Some(to_binary(&SendMsg::AnmlBuyback {})?),
             memo: None,
