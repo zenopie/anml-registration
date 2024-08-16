@@ -130,7 +130,7 @@ pub fn try_claim(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Respon
 
         let state = STATE.load(deps.storage)?;
 
-        let buyback_elapsed = env.block.time.seconds() - state.last_anml_buyback.seconds();
+        let buyback_elapsed = (env.block.time.seconds() - state.last_anml_buyback.seconds()) * 1000000;
 
         let mut messages = vec![];
 
