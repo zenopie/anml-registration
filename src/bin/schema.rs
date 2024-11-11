@@ -1,3 +1,5 @@
+//outdated, I don't really know what this is for yet
+
 use std::env::current_dir;
 use std::fs::create_dir_all;
 

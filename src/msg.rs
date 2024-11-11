@@ -1,13 +1,13 @@
+// src/msg.rs
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use cosmwasm_std::{Addr, Binary, Uint128, Timestamp};
+use crate::state::{AllocationConfig, AllocationPercentage, Config,};
 
-use cosmwasm_std::{Addr, Timestamp};
-
-use crate::state::State;
-
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub registration_address: String,
+    pub registration_wallet: String,
     pub contract_manager: String,
     pub anml_token_contract: String,
     pub anml_token_hash: String,
@@ -20,56 +20,87 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserObject {
     pub country: String,
-    pub address: Addr,
+    pub address: String,
     pub first_name: String,
     pub last_name: String,
-    pub date_of_birth: String,
+    pub date_of_birth: u64,
     pub document_number: String,
     pub id_type: String,
-    pub document_expiration: String,
+    pub document_expiration: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    UpdateState {
-        key: String,
-        value: String,
+    UpdateConfig {
+        config: Config,
     },
-    Register {user_object: UserObject},
-    Claim {},
+    Register {
+        user_object: UserObject,
+        affiliate: Option<String>,
+    },
+    ClaimAnml {},
+    SetAllocation {
+        percentages: Vec<AllocationPercentage>,
+    },
+    ClaimAllocation {
+        allocation_id: u32,
+    },
+    AddAllocation {
+        receive_addr: Addr,
+        receive_hash: Option<String>,
+        manager_addr: Option<Addr>,
+        claimer_addr: Option<Addr>,
+        use_send: bool,
+    },
+    EditAllocation {
+        allocation_id: u32,
+        config: AllocationConfig,
+    },
+    Receive {
+        sender: Addr,
+        from: Addr,
+        amount: Uint128,
+        memo: Option<String>,
+        msg: Binary,
+    },
 }
 
-/// This struct represents the message to send to the other contract.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiveMsg {
+    AllocationSend {
+        allocation_id: u32,
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SendMsg {
-    AnmlBuyback {},
+    AnmlBuybackSwap {},
+    AllocationSend {
+        allocation_id: u32,
+    },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrateMsg {
     Migrate {},
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     QueryState {},
-    RegistrationStatus {address: Addr},
+    QueryConfig {},
+    QueryRegistrationStatus { address: String },
+    QueryUserAllocations { address: String },
+    QueryAllocationOptions {},
 }
 
-// We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
 pub struct RegistrationStatusResponse {
     pub registration_status: bool,
     pub last_claim: Timestamp,
 }
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct StateResponse {
-    pub state: State,
-}
-
-
