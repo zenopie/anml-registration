@@ -1,4 +1,6 @@
 // src/execute/registration.rs
+// todo: add claim allocation message to register
+
 use cosmwasm_std::{
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, Timestamp, CosmosMsg, WasmMsg,
     to_binary,
