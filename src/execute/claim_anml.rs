@@ -6,9 +6,10 @@ use cosmwasm_std::{
 use crate::state::{IDS_BY_ADDRESS, CONFIG, STATE};
 use crate::msg::SendMsg;
 use secret_toolkit::snip20::{HandleMsg};
+use crate::execute::allocation::distribute_allocation_rewards;
 
 pub fn claim_anml(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
 ) -> StdResult<Response> {
@@ -20,6 +21,9 @@ pub fn claim_anml(
                 "One day hasn't passed since the last claim",
             ));
         }
+
+        // Distribute allocation rewards before processing the claim
+        let (total_rewards_distributed, time_elapsed, rewards_distributed) = distribute_allocation_rewards(&mut deps, env.block.time)?;
 
         let midnight_timestamp = Timestamp::from_seconds((env.block.time.seconds() / seconds_in_a_day) * seconds_in_a_day);
         user_data.last_anml_claim = midnight_timestamp;
@@ -82,10 +86,18 @@ pub fn claim_anml(
             funds: vec![],
         }));
 
-        let response = Response::new()
+        let mut response = Response::new()
             .add_messages(messages)
             .add_attribute("action", "claim")
             .add_attribute("buyback_amount", buyback_amount.to_string());
+        
+        // Add allocation distribution information if rewards were distributed
+        if rewards_distributed {
+            response = response
+                .add_attribute("rewards_distributed", total_rewards_distributed.to_string())
+                .add_attribute("time_elapsed", time_elapsed.to_string());
+        }
+        
         Ok(response)
     } else {
         return Err(StdError::generic_err("User data not found"))

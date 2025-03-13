@@ -9,6 +9,7 @@ pub struct AllocationState {
     pub allocation_id: u32,
     pub amount_allocated: Uint128,
     pub last_claim: Timestamp,
+    pub accumulated_rewards: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

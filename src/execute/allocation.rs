@@ -1,5 +1,5 @@
 // src/execute/allocation.rs
-use cosmwasm_std::{DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, Addr, to_binary, CosmosMsg, WasmMsg};
+use cosmwasm_std::{DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, Addr, to_binary, CosmosMsg, WasmMsg, Timestamp};
 use crate::state::{ALLOCATION_OPTIONS, USER_ALLOCATIONS, State, CONFIG, Allocation, AllocationConfig, AllocationPercentage,
     IDS_BY_ADDRESS, AllocationState, STATE};
 use crate::msg::SendMsg;
@@ -86,19 +86,89 @@ fn add_new_allocations(
     Ok(())
 }
 
+// Helper function for distributing allocation rewards
+pub fn distribute_allocation_rewards(
+    deps: &mut DepsMut,
+    current_time: Timestamp,
+) -> StdResult<(Uint128, u64, bool)> {
+    // Constants for rewards
+    let reward_rate_per_second: Uint128 = Uint128::from(1_000_000u128); // 1,000,000 ERTH per second (1 ERTH)
+    
+    // Load state to get last_upkeep
+    let mut state = STATE.load(deps.storage)?;
+    
+    // Calculate time elapsed since last upkeep
+    let time_elapsed = current_time.seconds().checked_sub(state.last_upkeep.seconds())
+        .unwrap_or(0);
+    
+    // If no time has elapsed, return early
+    if time_elapsed == 0 {
+        return Ok((Uint128::zero(), 0, false));
+    }
+    
+    // Load allocation options
+    let mut allocation_options = ALLOCATION_OPTIONS.load(deps.storage)?;
+    
+    // If there are no allocations, return early
+    if allocation_options.is_empty() {
+        // Update last_upkeep time
+        state.last_upkeep = current_time;
+        STATE.save(deps.storage, &state)?;
+        return Ok((Uint128::zero(), time_elapsed, false));
+    }
+    
+    // Calculate total rewards for the period
+    let total_rewards_for_period = reward_rate_per_second * Uint128::from(time_elapsed);
+    
+    // Calculate total allocation amount from loaded options
+    let calculated_total_allocations: Uint128 = allocation_options
+        .iter()
+        .fold(Uint128::zero(), |acc, allocation| acc + allocation.state.amount_allocated);
+    
+    // If calculated total is zero, return early
+    if calculated_total_allocations.is_zero() {
+        // Update last_upkeep time
+        state.last_upkeep = current_time;
+        STATE.save(deps.storage, &state)?;
+        return Ok((Uint128::zero(), time_elapsed, false));
+    }
+    
+    // Distribute rewards to each allocation based on their proportion of the total
+    for allocation in allocation_options.iter_mut() {
+        // Calculate this allocation's share of rewards
+        let allocation_share = allocation.state.amount_allocated
+            * total_rewards_for_period
+            / calculated_total_allocations;
+        
+        // Add to accumulated rewards
+        allocation.state.accumulated_rewards = allocation.state.accumulated_rewards
+            .checked_add(allocation_share)
+            .map_err(|_| StdError::generic_err("Overflow in accumulated rewards"))?;
+    }
+    
+    // Update last_upkeep time
+    state.last_upkeep = current_time;
+    
+    // Save the updated allocations and state
+    ALLOCATION_OPTIONS.save(deps.storage, &allocation_options)?;
+    STATE.save(deps.storage, &state)?;
+    
+    // Return the total rewards distributed, time elapsed, and success flag
+    Ok((total_rewards_for_period, time_elapsed, true))
+}
+
 pub fn claim_allocation(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
     allocation_id: u32,
 ) -> StdResult<Response> {
-    // Constants for rewards
-    let reward_rate_per_second: Uint128 = Uint128::from(1_000_000u128); // 1,000,000 ERTH per second
-
     // Load the current state
     let config = CONFIG.load(deps.storage)?;
-    let state = STATE.load(deps.storage)?;
-
+    
+    // Distribute rewards before processing the claim
+    let (total_rewards_distributed, time_elapsed, rewards_distributed) = distribute_allocation_rewards(&mut deps, env.block.time)?;
+    
     // Find the allocation by ID
     let mut allocation_options = ALLOCATION_OPTIONS.load(deps.storage)?;
     let allocation = allocation_options.iter_mut().find(|alloc| alloc.state.allocation_id == allocation_id)
@@ -111,16 +181,15 @@ pub fn claim_allocation(
         }
     }
 
-    // Calculate the time elapsed since the last claim
-    let time_elapsed = env.block.time.seconds().checked_sub(allocation.state.last_claim.seconds())
-        .ok_or_else(|| StdError::generic_err("Invalid block time"))?;
-
-    // Calculate allocation share
-    if state.total_allocations.is_zero() {
-        return Err(StdError::generic_err("Total allocations is zero"));
-    }
-    let allocation_share = allocation.state.amount_allocated * reward_rate_per_second * Uint128::from(time_elapsed) / state.total_allocations;
-
+    // Get the accumulated rewards for this allocation
+    let allocation_share = allocation.state.accumulated_rewards;
+    
+    // Reset accumulated rewards after claiming
+    allocation.state.accumulated_rewards = Uint128::zero();
+    
+    // Update the claim time
+    allocation.state.last_claim = env.block.time;
+    
     let mut messages = Vec::new();
 
     // Prepare the minting message based on the `use_send` flag
@@ -176,16 +245,23 @@ pub fn claim_allocation(
         }));
     };
 
-    // Update the claim time
-    allocation.state.last_claim = env.block.time;
+    // Save the updated allocations
     ALLOCATION_OPTIONS.save(deps.storage, &allocation_options)?;
 
     // Return the response with the mint message
-    Ok(Response::new()
+    let response = Response::new()
         .add_messages(messages)
         .add_attribute("action", "claim_allocation")
         .add_attribute("allocation_id", allocation_id.to_string())
-        .add_attribute("allocation_share", allocation_share.to_string()))
+        .add_attribute("allocation_share", allocation_share.to_string());
+        
+    if rewards_distributed {
+        Ok(response
+            .add_attribute("rewards_distributed", total_rewards_distributed.to_string())
+            .add_attribute("time_elapsed", time_elapsed.to_string()))
+    } else {
+        Ok(response)
+    }
 }
 
 pub fn edit_allocation(
@@ -255,6 +331,7 @@ pub fn add_allocation(
         allocation_id: state.allocation_counter,
         amount_allocated: Uint128::zero(),
         last_claim: env.block.time,
+        accumulated_rewards: Uint128::zero(),
     };
 
     let allocation_config = AllocationConfig {

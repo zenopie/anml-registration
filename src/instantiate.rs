@@ -22,6 +22,7 @@ pub fn execute_instantiate(
         total_allocations: Uint128::zero(),
         allocation_counter: 0,
         registration_reward: Uint128::zero(),
+        last_upkeep: env.block.time,
     };
 
     let config = Config {

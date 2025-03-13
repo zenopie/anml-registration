@@ -25,6 +25,7 @@ pub struct State {
     pub total_allocations: Uint128,
     pub allocation_counter: u32,
     pub registration_reward: Uint128,
+    pub last_upkeep: Timestamp,
 }
 
 
