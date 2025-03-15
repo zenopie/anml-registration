@@ -1,4 +1,6 @@
-/node
+# Node.js
+node_modules/
+.env
 
 # Build results
 /target
