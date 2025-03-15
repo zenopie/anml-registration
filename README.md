@@ -47,23 +47,113 @@ cargo schema
 - Secret Network CLI installed
 - Funded account on Secret Network
 
-### Using the Node.js Client
+### Step-by-Step Deployment Process
 
-The `node` directory contains a complete client for interacting with the contract:
+For maximum control and security, follow these individual steps:
+
+#### 1. Setup and Configuration
 
 ```bash
+# Navigate to the node directory
 cd node
 
 # Install dependencies
 npm install
 
-# Configure environment variables
+# Create and configure your .env file
 cp .env.example .env
-# Edit .env with your mnemonic and network settings
 
-# Deploy the contract
+# Edit the .env file with your mnemonic and network settings
+nano .env  # or use your preferred text editor
+```
+
+#### 2. Verify Connection Before Proceeding
+
+```bash
+# Run the diagnostics tool to verify network connectivity
+node diagnose.js
+
+# Make sure the network connection is successful before proceeding
+```
+
+#### 3. Upload the Contract Code (Step 1 of deployment)
+
+```bash
+# Upload the contract to the blockchain
 node index.js deploy upload
-node index.js deploy instantiate
+
+# IMPORTANT: Note the code ID and code hash that are returned
+# You'll need these values for the next step
+```
+
+#### 4. Verify the Uploaded Contract
+
+```bash
+# You can verify the uploaded code exists with:
+node index.js query hash <address_of_another_contract_you_own>
+
+# This is a general verification that your connectivity works
+```
+
+#### 5. Instantiate a New Contract (Step 2 of deployment)
+
+```bash
+# Use the code ID from step 3
+node index.js deploy instantiate <code_id> <code_hash>
+
+# IMPORTANT: Note the contract address that is returned
+# Add this address to your .env file for future reference
+```
+
+#### 6. Verify the Contract Instantiation
+
+```bash
+# Query the contract state to ensure it was instantiated correctly
+node index.js query state <contract_address> <contract_hash>
+
+# This should return the initial state of your contract
+```
+
+### Contract Migration (When needed)
+
+Migration should be performed with extreme caution as it upgrades the contract code:
+
+#### 1. Upload New Version of the Contract
+
+```bash
+# Upload the new contract version
+node index.js deploy upload
+
+# IMPORTANT: Note the NEW code ID and code hash
+```
+
+#### 2. Verify the Upload Was Successful
+
+```bash
+# Take time to verify the upload succeeded before proceeding
+```
+
+#### 3. Review the Migration Impact (Critical Step)
+
+```bash
+# Understand what changes the new contract version will introduce
+# Review the code diff between versions
+```
+
+#### 4. Migrate the Contract to the New Version
+
+```bash
+# Use the contract address and NEW code ID from previous steps
+node index.js deploy migrate <contract_address> <new_code_id> <new_code_hash>
+```
+
+#### 5. Verify the Migration Was Successful
+
+```bash
+# Query the contract state after migration
+node index.js query state <contract_address> <contract_hash>
+
+# Verify that the contract behaves as expected with a few test operations
 ```
 
 ## Contract Interaction
