@@ -1,19 +1,16 @@
-// src/execute/registration.rs
-// todo: add claim allocation message to register
-
 use cosmwasm_std::{
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, Timestamp, CosmosMsg, WasmMsg,
     to_binary,
 };
 use secret_toolkit::snip20;
-use crate::msg::UserObject;
-use crate::state::{CONFIG, STATE, Id, IDS_BY_ADDRESS, IDS_BY_DOCUMENT_NUMBER};
+use crate::state::{CONFIG, STATE, REGISTRATIONS, Registration};
 
 pub fn register(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    user_object: UserObject,
+    address: String,
+    id_hash: String,
     affiliate: Option<String>,
 ) -> StdResult<Response> {
     let mut state = STATE.load(deps.storage)?;
@@ -24,40 +21,37 @@ pub fn register(
         return Err(StdError::generic_err("Not authorized"));
     }
 
-    // Check if registrations are maxed out
-    if state.registrations >= config.max_registrations {
-        return Err(StdError::generic_err("Max registrations reached"));
+    // Validate the registree address
+    let wallet_address_addr = deps.api.addr_validate(&address)?;
+
+    // Check existing registration
+    let existing_registration = REGISTRATIONS.get_by_address(deps.storage, &wallet_address_addr)?;
+    if let Some(reg) = existing_registration {
+        // Calculate expiration time
+        let expiration = reg.registration_timestamp.plus_seconds(config.registration_validity_seconds);
+        if env.block.time <= expiration {
+            return Err(StdError::generic_err("Registration still valid, cannot re-register yet"));
+        }
+        // If expired, remove the old registration to allow re-registration
+        REGISTRATIONS.remove(deps.storage, &wallet_address_addr, &reg.id_hash)?;
     }
 
-    let wallet_address_addr = deps.api.addr_validate(&user_object.address)?;
-    // Create namespace for document numbers by country
-    let document_numbers_by_country =
-        IDS_BY_DOCUMENT_NUMBER.add_suffix(user_object.country.as_bytes());
+    // Check if the hash is already registered (only if not expired and removed)
+    if REGISTRATIONS.get_by_hash(deps.storage, &id_hash)?.is_some() {
+        return Err(StdError::generic_err("ID hash already registered"));
+    }
 
-    // Create document object
-    let mut id = Id {
-        registration_status: "not assigned".to_string(),
-        country: user_object.country,
-        wallet_address: wallet_address_addr.clone(),
-        first_name: user_object.first_name,
-        last_name: user_object.last_name,
-        date_of_birth: Timestamp::from_seconds(user_object.date_of_birth),
-        document_number: user_object.document_number.clone(),
-        id_type: user_object.id_type,
-        document_expiration: Timestamp::from_seconds(user_object.document_expiration),
+    // Create the Registration object
+    let registration = Registration {
+        id_hash: id_hash.clone(),
         registration_timestamp: env.block.time,
         last_anml_claim: Timestamp::from_nanos(0),
     };
 
-    // Check if document is already registered
-    if document_numbers_by_country.get(deps.storage, &user_object.document_number).is_some() {
-        return Err(StdError::generic_err("Document already registered"));
-    }
+    // Insert into DualKeymap using registree_address
+    REGISTRATIONS.insert(deps.storage, wallet_address_addr.clone(), id_hash, registration)?;
 
-    // Document is not registered, set registration status to registered
-    id.registration_status = "registered".to_string();
-    document_numbers_by_country.insert(deps.storage, &user_object.document_number, &id)?;
-    IDS_BY_ADDRESS.insert(deps.storage, &wallet_address_addr, &id)?;
+    // Increment registration count
     state.registrations += 1;
 
     // Calculate the 1% registration reward
@@ -73,6 +67,7 @@ pub fn register(
 
     // Create SNIP-20 transfer messages
     let mut messages = vec![
+        // Transfer reward to registrant (registree_address)
         CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.erth_token_contract.to_string(),
             code_hash: config.erth_token_hash.clone(),
@@ -84,6 +79,7 @@ pub fn register(
             })?,
             funds: vec![],
         }),
+        // Transfer reward to registration wallet
         CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.erth_token_contract.to_string(),
             code_hash: config.erth_token_hash.clone(),
@@ -100,20 +96,31 @@ pub fn register(
     // If there's an affiliate, send them 1% as well
     if let Some(affiliate_address) = affiliate {
         let affiliate_addr = deps.api.addr_validate(&affiliate_address)?;
-        messages.push(
-            CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.erth_token_contract.to_string(),
-                code_hash: config.erth_token_hash.clone(),
-                msg: to_binary(&snip20::HandleMsg::Transfer {
-                    recipient: affiliate_addr.to_string(),
-                    amount: Uint128::from(reward),
-                    memo: None,
-                    padding: None,
-                })?,
-                funds: vec![],
-            }),
-        );
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.erth_token_contract.to_string(),
+            code_hash: config.erth_token_hash.clone(),
+            msg: to_binary(&snip20::HandleMsg::Transfer {
+                recipient: affiliate_addr.to_string(),
+                amount: Uint128::from(reward),
+                memo: None,
+                padding: None,
+            })?,
+            funds: vec![],
+        }));
     }
+
+    // Add claim allocation message (mint tokens for future claim to registree_address)
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.erth_token_contract.to_string(),
+        code_hash: config.erth_token_hash.clone(),
+        msg: to_binary(&snip20::HandleMsg::Mint {
+            recipient: wallet_address_addr.to_string(),
+            amount: Uint128::from(1000u128), // Example allocation amount (adjust as needed)
+            memo: Some("Initial allocation for registration".to_string()),
+            padding: None,
+        })?,
+        funds: vec![],
+    }));
 
     // Update state after successful registration
     STATE.save(deps.storage, &state)?;
@@ -121,5 +128,6 @@ pub fn register(
     // Respond with the transaction messages
     Ok(Response::new()
         .add_messages(messages)
-        .add_attribute("result", id.registration_status))
+        .add_attribute("action", "register")
+        .add_attribute("address", wallet_address_addr.to_string()))
 }

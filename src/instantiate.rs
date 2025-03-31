@@ -29,7 +29,7 @@ pub fn execute_instantiate(
         contract_manager: contract_manager_addr,
         registration_address: registration_address_addr,
         registration_wallet: registration_wallet_addr,
-        max_registrations: 50,
+        registration_validity_seconds: 60 * 60 * 24 * 30, // 30 days
         anml_token_contract: anml_token_contract_addr,
         anml_token_hash: msg.anml_token_hash,
         erth_token_contract: erth_token_contract_addr,

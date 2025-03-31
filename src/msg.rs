@@ -17,17 +17,6 @@ pub struct InstantiateMsg {
     pub anml_pool_hash: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct UserObject {
-    pub country: String,
-    pub address: String,
-    pub first_name: String,
-    pub last_name: String,
-    pub date_of_birth: u64,
-    pub document_number: String,
-    pub id_type: String,
-    pub document_expiration: u64,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -36,7 +25,8 @@ pub enum ExecuteMsg {
         config: Config,
     },
     Register {
-        user_object: UserObject,
+        address: String,
+        id_hash: String,
         affiliate: Option<String>,
     },
     ClaimAnml {},

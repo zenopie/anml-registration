@@ -1,25 +1,54 @@
-// src/state/registration.rs
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use cosmwasm_std::{Addr, Timestamp};
+use cosmwasm_std::{Addr, Timestamp, Storage, StdResult};
 use secret_toolkit_storage::Keymap;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct Id {
-    pub registration_status: String,
-    pub country: String,
-    pub wallet_address: Addr,
-    pub first_name: String,
-    pub last_name: String,
-    pub date_of_birth: Timestamp,
-    pub document_number: String,
-    pub id_type: String,
-    pub document_expiration: Timestamp,
+pub struct Registration {
+    pub id_hash: String,
     pub registration_timestamp: Timestamp,
     pub last_anml_claim: Timestamp,
 }
 
-pub static IDS_BY_ADDRESS: Keymap<Addr, Id> = Keymap::new(b"ids_by_address");
-pub static IDS_BY_DOCUMENT_NUMBER: Keymap<String, Id> = Keymap::new(b"ids_by_document_number");
+pub struct DualKeymap<'a> { // Lifetime 'a is correct here
+    pub by_address: Keymap<'a, Addr, Registration>,
+    pub by_hash: Keymap<'a, String, Registration>,
+}
 
+impl<'a> DualKeymap<'a> {
+    pub const fn new() -> Self {
+        DualKeymap {
+            by_address: Keymap::new(b"registrations_by_address_v0.0.1"), // use versioned keys
+            by_hash: Keymap::new(b"registrations_by_hash_v0.0.1"),
+        }
+    }
 
+    pub fn insert(
+        &self,
+        storage: &mut dyn Storage, // Storage reference with lifetime 'a
+        address: Addr,
+        hash: String,
+        data: Registration,
+    ) -> StdResult<()> {
+        self.by_address.insert(storage, &address, &data)?;
+        self.by_hash.insert(storage, &hash, &data)?;
+        Ok(())
+    }
+
+    pub fn get_by_address(&self, storage: &dyn Storage, address: &Addr) -> StdResult<Option<Registration>> {
+        Ok(self.by_address.get(storage, address))
+    }
+
+    pub fn get_by_hash(&self, storage: &dyn Storage, hash: &String) -> StdResult<Option<Registration>> {
+        Ok(self.by_hash.get(storage, hash))
+    }
+
+    pub fn remove(&self, storage: &mut dyn Storage, address: &Addr, hash: &String) -> StdResult<()> {
+        self.by_address.remove(storage, address)?;
+        self.by_hash.remove(storage, hash)?;
+        Ok(())
+    }
+
+}
+
+pub const REGISTRATIONS: DualKeymap = DualKeymap::new();

@@ -34,4 +34,4 @@ pub struct AllocationPercentage {
 }
 
 pub static ALLOCATION_OPTIONS: Item<Vec<Allocation>> = Item::new(b"allocation_options");
-pub static USER_ALLOCATIONS: Keymap<Addr, Vec<AllocationPercentage>> = Keymap::new(b"user_allocations");
+pub static USER_ALLOCATIONS: Keymap<Addr, Vec<AllocationPercentage>> = Keymap::new(b"user_allocations_v0.0.1");

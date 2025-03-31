@@ -1,18 +1,27 @@
 // src/execute/allocation.rs
 use cosmwasm_std::{DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, Addr, to_binary, CosmosMsg, WasmMsg, Timestamp};
 use crate::state::{ALLOCATION_OPTIONS, USER_ALLOCATIONS, State, CONFIG, Allocation, AllocationConfig, AllocationPercentage,
-    IDS_BY_ADDRESS, AllocationState, STATE};
+    AllocationState, STATE, REGISTRATIONS};
 use crate::msg::SendMsg;
 use secret_toolkit::snip20::{HandleMsg};
 
 
 pub fn set_allocation(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     percentages: Vec<AllocationPercentage>,
 ) -> StdResult<Response> {
-    // Load user info or return an error if no deposit is found
-    if IDS_BY_ADDRESS.get(deps.storage, &info.sender).is_none() {
+    // Load config to get registration validity period
+    let config = CONFIG.load(deps.storage)?;
+
+    // Load user registration and check validity
+    if let Some(registration) = REGISTRATIONS.get_by_address(deps.storage, &info.sender)? {
+        let registration_age = env.block.time.seconds() - registration.registration_timestamp.seconds();
+        if registration_age > config.registration_validity_seconds {
+            return Err(StdError::generic_err("Registration has expired"));
+        }
+    } else {
         return Err(StdError::generic_err("User not registered"));
     }
 

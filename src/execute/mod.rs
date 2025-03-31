@@ -16,9 +16,9 @@ pub fn execute_dispatch(
 ) -> StdResult<Response> {
     match msg {
         ExecuteMsg::UpdateConfig { config } => update_config::update_config(deps, env, info, config),
-        ExecuteMsg::Register { user_object, affiliate } => registration::register(deps, env, info, user_object, affiliate),
+        ExecuteMsg::Register { address, id_hash, affiliate } => registration::register(deps, env, info, address, id_hash, affiliate),
         ExecuteMsg::ClaimAnml {} => claim_anml::claim_anml(deps, env, info),
-        ExecuteMsg::SetAllocation { percentages } => allocation::set_allocation(deps, info, percentages),
+        ExecuteMsg::SetAllocation { percentages } => allocation::set_allocation(deps, env, info, percentages),
         ExecuteMsg::ClaimAllocation { allocation_id } => allocation::claim_allocation(deps, env, info, allocation_id),
         ExecuteMsg::EditAllocation { allocation_id, config } => allocation::edit_allocation(deps, info, allocation_id, config),
         ExecuteMsg::AddAllocation { receive_addr, receive_hash, manager_addr, claimer_addr, use_send } => 

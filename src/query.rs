@@ -1,15 +1,15 @@
 // src/query/mod.rs
 use cosmwasm_std::{Deps, Env, Binary, StdResult, to_binary, Timestamp,};
 use crate::msg::{QueryMsg, RegistrationStatusResponse};
-use crate::state::{USER_ALLOCATIONS, AllocationPercentage, ALLOCATION_OPTIONS, Allocation, IDS_BY_ADDRESS,
-    STATE, State, Config, CONFIG};
+use crate::state::{USER_ALLOCATIONS, AllocationPercentage, ALLOCATION_OPTIONS, Allocation,
+    STATE, State, Config, CONFIG, REGISTRATIONS};
 
 
-pub fn query_dispatch(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query_dispatch(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::QueryState {} => to_binary(&query_state(deps)?),
         QueryMsg::QueryConfig {} => to_binary(&query_config(deps)?),
-        QueryMsg::QueryRegistrationStatus { address } => to_binary(&query_anml_status(deps, address)?),
+        QueryMsg::QueryRegistrationStatus { address } => to_binary(&query_registration_status(deps, env, address)?),
         QueryMsg::QueryAllocationOptions {} => to_binary(&query_allocation_options(deps)?),
         QueryMsg::QueryUserAllocations{address} => to_binary(&query_user_allocations(deps, address)?),
     }
@@ -25,19 +25,33 @@ fn query_config(deps: Deps) -> StdResult<Config> {
     Ok(config)
 }
 
-fn query_anml_status(deps: Deps, address: String) -> StdResult<RegistrationStatusResponse> {
+pub fn query_registration_status(deps: Deps, env: Env, address: String) -> StdResult<RegistrationStatusResponse> {
+
     // Validate the provided address to ensure it's a valid format.
     let addr = deps.api.addr_validate(&address)?;
 
-    // Attempt to retrieve the user data from storage using the validated address.
-    let (registration_status, last_claim) = match IDS_BY_ADDRESS.get(deps.storage, &addr) {
-        // If user data is found, set registration_status to true and use the last claim timestamp.
-        Some(user_data) => (true, user_data.last_anml_claim),
-        // If no user data is found, set registration_status to false and use the default timestamp.
+    // Load config to get registration validity period
+    let config = CONFIG.load(deps.storage)?;
+
+    // Get current block time
+    let current_time = env.block.time;
+
+    // Attempt to retrieve the registration data
+    let (registration_status, last_claim) = match REGISTRATIONS.get_by_address(deps.storage, &addr)? {
+        Some(registration) => {
+            // Check if registration is still valid
+            let registration_age = current_time.seconds() - registration.registration_timestamp.seconds();
+            if registration_age > config.registration_validity_seconds {
+                // Registration has expired
+                (false, Timestamp::default())
+            } else {
+                // Registration is still valid
+                (true, registration.last_anml_claim)
+            }
+        }
         None => (false, Timestamp::default()),
     };
 
-    // Create and return the response containing the registration status and last claim timestamp.
     Ok(RegistrationStatusResponse {
         registration_status,
         last_claim,
