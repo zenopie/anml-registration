@@ -36,9 +36,14 @@ pub fn register(
         REGISTRATIONS.remove(deps.storage, &wallet_address_addr, &reg.id_hash)?;
     }
 
-    // Check if the hash is already registered (only if not expired and removed)
-    if REGISTRATIONS.get_by_hash(deps.storage, &id_hash)?.is_some() {
-        return Err(StdError::generic_err("ID hash already registered"));
+    // Check if the hash is already registered
+    if let Some(existing_reg) = REGISTRATIONS.get_by_hash(deps.storage, &id_hash)? {
+        let expiration = existing_reg.registration_timestamp.plus_seconds(config.registration_validity_seconds);
+        if env.block.time > expiration {
+            REGISTRATIONS.remove(deps.storage, &existing_reg.address, &id_hash)?;
+        } else {
+            return Err(StdError::generic_err("ID hash already registered and not expired"));
+        }
     }
 
     // Create the Registration object
@@ -46,6 +51,7 @@ pub fn register(
         id_hash: id_hash.clone(),
         registration_timestamp: env.block.time,
         last_anml_claim: Timestamp::from_nanos(0),
+        address: wallet_address_addr.clone(),
     };
 
     // Insert into DualKeymap using registree_address
