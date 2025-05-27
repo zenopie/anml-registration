@@ -4,6 +4,7 @@ use cosmwasm_std::{
 };
 use secret_toolkit::snip20;
 use crate::state::{CONFIG, STATE, REGISTRATIONS, Registration};
+use crate::msg::SendMsg;
 
 pub fn register(
     deps: DepsMut,
@@ -60,8 +61,8 @@ pub fn register(
     // Increment registration count
     state.registrations += 1;
 
-    // Calculate the 1% registration reward
-    let reward = state.registration_reward.u128() / 100;
+    // Calculate the .1% registration reward
+    let reward = state.registration_reward.u128() / 1000;
 
     // Subtract the total reward from state.registration_reward
     let total_reward = if affiliate.is_some() {
@@ -115,15 +116,13 @@ pub fn register(
         }));
     }
 
-    // Add claim allocation message (mint tokens for future claim to registree_address)
+
+    // Execute claim_allocation message
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.erth_token_contract.to_string(),
-        code_hash: config.erth_token_hash.clone(),
-        msg: to_binary(&snip20::HandleMsg::Mint {
-            recipient: wallet_address_addr.to_string(),
-            amount: Uint128::from(1000u128), // Example allocation amount (adjust as needed)
-            memo: Some("Initial allocation for registration".to_string()),
-            padding: None,
+        contract_addr: env.contract.address.to_string(),
+        code_hash: env.contract.code_hash.clone(),
+        msg: to_binary(&SendMsg::ClaimAllocation {
+            allocation_id: 1,
         })?,
         funds: vec![],
     }));

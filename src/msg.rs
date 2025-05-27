@@ -71,6 +71,9 @@ pub enum SendMsg {
     AllocationSend {
         allocation_id: u32,
     },
+    ClaimAllocation {
+        allocation_id: u32,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
