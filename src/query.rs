@@ -2,7 +2,7 @@
 use cosmwasm_std::{Deps, Env, Binary, StdResult, to_binary, Timestamp,};
 use crate::msg::{QueryMsg, RegistrationStatusResponse};
 use crate::state::{USER_ALLOCATIONS, AllocationPercentage, ALLOCATION_OPTIONS, Allocation,
-    STATE, State, Config, CONFIG, REGISTRATIONS};
+    STATE, State, Config, CONFIG, REGISTRATIONS, Registration};
 
 
 pub fn query_dispatch(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
@@ -10,6 +10,7 @@ pub fn query_dispatch(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> 
         QueryMsg::QueryState {} => to_binary(&query_state(deps)?),
         QueryMsg::QueryConfig {} => to_binary(&query_config(deps)?),
         QueryMsg::QueryRegistrationStatus { address } => to_binary(&query_registration_status(deps, env, address)?),
+        QueryMsg::QueryRegistrationStatusByIdHash { id_hash } => to_binary(&query_registration_status_by_id_hash(deps, env, id_hash)?),
         QueryMsg::QueryAllocationOptions {} => to_binary(&query_allocation_options(deps)?),
         QueryMsg::QueryUserAllocations{address} => to_binary(&query_user_allocations(deps, address)?),
     }
@@ -25,19 +26,13 @@ fn query_config(deps: Deps) -> StdResult<Config> {
     Ok(config)
 }
 
-pub fn query_registration_status(deps: Deps, env: Env, address: String) -> StdResult<RegistrationStatusResponse> {
-
-    // Validate the provided address to ensure it's a valid format.
-    let addr = deps.api.addr_validate(&address)?;
-
-    // Load config to get registration validity period
-    let config = CONFIG.load(deps.storage)?;
-
-    // Get current block time
-    let current_time = env.block.time;
-
-    // Attempt to retrieve the registration data
-    let (registration_status, last_claim) = match REGISTRATIONS.get_by_address(deps.storage, &addr)? {
+/// Helper function to check registration validity, avoiding code duplication.
+fn check_registration_validity(
+    registration_opt: Option<Registration>,
+    config: &Config,
+    current_time: Timestamp,
+) -> (bool, Timestamp) {
+    match registration_opt {
         Some(registration) => {
             // Check if registration is still valid
             let registration_age = current_time.seconds() - registration.registration_timestamp.seconds();
@@ -50,7 +45,37 @@ pub fn query_registration_status(deps: Deps, env: Env, address: String) -> StdRe
             }
         }
         None => (false, Timestamp::default()),
-    };
+    }
+}
+
+// Updated original function to use the helper
+pub fn query_registration_status(deps: Deps, env: Env, address: String) -> StdResult<RegistrationStatusResponse> {
+    let addr = deps.api.addr_validate(&address)?;
+    let config = CONFIG.load(deps.storage)?;
+    let current_time = env.block.time;
+
+    // Retrieve the registration data by address
+    let registration_opt = REGISTRATIONS.get_by_address(deps.storage, &addr)?;
+
+    // Use the helper to determine status
+    let (registration_status, last_claim) = check_registration_validity(registration_opt, &config, current_time);
+
+    Ok(RegistrationStatusResponse {
+        registration_status,
+        last_claim,
+    })
+}
+
+// New query function to get status by ID hash
+pub fn query_registration_status_by_id_hash(deps: Deps, env: Env, id_hash: String) -> StdResult<RegistrationStatusResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let current_time = env.block.time;
+
+    // Retrieve the registration data by hash using your DualKeymap
+    let registration_opt = REGISTRATIONS.get_by_hash(deps.storage, &id_hash)?;
+
+    // Use the same helper to determine status
+    let (registration_status, last_claim) = check_registration_validity(registration_opt, &config, current_time);
 
     Ok(RegistrationStatusResponse {
         registration_status,

@@ -88,6 +88,7 @@ pub enum QueryMsg {
     QueryState {},
     QueryConfig {},
     QueryRegistrationStatus { address: String },
+    QueryRegistrationStatusByIdHash { id_hash: String },
     QueryUserAllocations { address: String },
     QueryAllocationOptions {},
 }
