@@ -19,8 +19,8 @@ pub struct DualKeymap<'a> { // Lifetime 'a is correct here
 impl<'a> DualKeymap<'a> {
     pub const fn new() -> Self {
         DualKeymap {
-            by_address: Keymap::new(b"registrations_by_address_v0.0.3"), // use versioned keys
-            by_hash: Keymap::new(b"registrations_by_hash_v0.0.3"),
+            by_address: Keymap::new(b"registrations_by_address_v0.0.4"), // use versioned keys
+            by_hash: Keymap::new(b"registrations_by_hash_v0.0.4"),
         }
     }
 
