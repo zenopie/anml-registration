@@ -98,3 +98,14 @@ pub struct RegistrationStatusResponse {
     pub registration_status: bool,
     pub last_claim: Timestamp,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]
+pub struct StateResponse {
+    pub registrations: u32,
+    pub new_registrations: u32, // Count of brand new registrations
+    pub last_anml_buyback: Timestamp,
+    pub total_allocations: Uint128,
+    pub allocation_counter: u32,
+    pub registration_reward: Uint128,
+    pub last_upkeep: Timestamp,
+}

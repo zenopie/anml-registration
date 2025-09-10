@@ -2,8 +2,8 @@ use cosmwasm_std::{
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, Timestamp, CosmosMsg, WasmMsg,
     to_binary,
 };
-use secret_toolkit::snip20;
-use crate::state::{CONFIG, STATE, REGISTRATIONS, Registration};
+use secret_toolkit::snip20::{self, HandleMsg};
+use crate::state::{CONFIG, STATE, REGISTRATIONS, Registration, NEW_REGISTRATIONS_COUNT};
 use crate::msg::SendMsg;
 
 pub fn register(
@@ -37,8 +37,10 @@ pub fn register(
         REGISTRATIONS.remove(deps.storage, &wallet_address_addr, &reg.id_hash)?;
     }
 
-    // Check if the hash is already registered
+    // Check if the hash is already registered and track if it's a new ID hash
+    let mut is_new_id_hash = true;
     if let Some(existing_reg) = REGISTRATIONS.get_by_hash(deps.storage, &id_hash)? {
+        is_new_id_hash = false; // This ID hash has been registered before
         let expiration = existing_reg.registration_timestamp.plus_seconds(config.registration_validity_seconds);
         if env.block.time > expiration {
             REGISTRATIONS.remove(deps.storage, &existing_reg.address, &id_hash)?;
@@ -47,11 +49,17 @@ pub fn register(
         }
     }
 
+    // Set last_anml_claim to midnight of the current day
+    let seconds_in_a_day = 86400;
+    let midnight_timestamp = Timestamp::from_seconds(
+        (env.block.time.seconds() / seconds_in_a_day) * seconds_in_a_day
+    );
+
     // Create the Registration object
     let registration = Registration {
         id_hash: id_hash.clone(),
         registration_timestamp: env.block.time,
-        last_anml_claim: Timestamp::from_nanos(0),
+        last_anml_claim: midnight_timestamp,
         address: wallet_address_addr.clone(),
     };
 
@@ -61,60 +69,71 @@ pub fn register(
     // Increment registration count
     state.registrations += 1;
 
-    // Calculate the .1% registration reward
-    let reward = state.registration_reward.u128() / 1000;
+    // Track new registrations and calculate rewards only for brand new ID hashes
+    let mut messages = vec![];
+    if is_new_id_hash {
+        // Increment new registrations counter
+        let current_new_count = NEW_REGISTRATIONS_COUNT.may_load(deps.storage)?.unwrap_or(0);
+        NEW_REGISTRATIONS_COUNT.save(deps.storage, &(current_new_count + 1))?;
 
-    // Subtract the total reward from state.registration_reward
-    let total_reward = if affiliate.is_some() {
-        reward * 3 // 1% to registree, 1% to registration wallet, 1% to affiliate
-    } else {
-        reward * 2 // 1% to registree, 1% to registration wallet
-    };
-    state.registration_reward = Uint128::from(state.registration_reward.u128().saturating_sub(total_reward));
+        // Calculate the .1% registration reward
+        let reward = state.registration_reward.u128() / 1000;
 
-    // Create SNIP-20 transfer messages
-    let mut messages = vec![
-        // Transfer reward to registrant (registree_address)
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.erth_token_contract.to_string(),
-            code_hash: config.erth_token_hash.clone(),
-            msg: to_binary(&snip20::HandleMsg::Transfer {
-                recipient: wallet_address_addr.to_string(),
-                amount: Uint128::from(reward),
-                memo: None,
-                padding: None,
-            })?,
-            funds: vec![],
-        }),
-        // Transfer reward to registration wallet
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.erth_token_contract.to_string(),
-            code_hash: config.erth_token_hash.clone(),
-            msg: to_binary(&snip20::HandleMsg::Transfer {
-                recipient: config.registration_wallet.to_string(),
-                amount: Uint128::from(reward),
-                memo: None,
-                padding: None,
-            })?,
-            funds: vec![],
-        }),
-    ];
+        // Subtract the total reward from state.registration_reward
+        let total_reward = if affiliate.is_some() {
+            reward * 2 // 1% to registree, 1% to affiliate
+        } else {
+            reward // 1% to registree
+        };
+        state.registration_reward = Uint128::from(state.registration_reward.u128().saturating_sub(total_reward));
 
-    // If there's an affiliate, send them 1% as well
-    if let Some(affiliate_address) = affiliate {
-        let affiliate_addr = deps.api.addr_validate(&affiliate_address)?;
-        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.erth_token_contract.to_string(),
-            code_hash: config.erth_token_hash.clone(),
-            msg: to_binary(&snip20::HandleMsg::Transfer {
-                recipient: affiliate_addr.to_string(),
-                amount: Uint128::from(reward),
-                memo: None,
-                padding: None,
-            })?,
-            funds: vec![],
-        }));
+        // Create SNIP-20 transfer messages for rewards
+        messages.push(
+            // Transfer reward to registrant (registree_address)
+            CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.erth_token_contract.to_string(),
+                code_hash: config.erth_token_hash.clone(),
+                msg: to_binary(&snip20::HandleMsg::Transfer {
+                    recipient: wallet_address_addr.to_string(),
+                    amount: Uint128::from(reward),
+                    memo: None,
+                    padding: None,
+                })?,
+                funds: vec![],
+            }),
+        );
+
+        // If there's an affiliate, send them 1% as well
+        if let Some(affiliate_address) = affiliate {
+            let affiliate_addr = deps.api.addr_validate(&affiliate_address)?;
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.erth_token_contract.to_string(),
+                code_hash: config.erth_token_hash.clone(),
+                msg: to_binary(&snip20::HandleMsg::Transfer {
+                    recipient: affiliate_addr.to_string(),
+                    amount: Uint128::from(reward),
+                    memo: None,
+                    padding: None,
+                })?,
+                funds: vec![],
+            }));
+        }
     }
+
+
+     // Create message for minting ANML to the user
+    let mint_anml = HandleMsg::Mint {
+        recipient: address.clone(),
+        amount: 1_000_000u32.into(),
+        padding: None,
+        memo: None,
+    };
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.anml_token_contract.to_string(),
+        code_hash: config.anml_token_hash.clone(),
+        msg: to_binary(&mint_anml)?,
+        funds: vec![],
+    }));
 
 
     // Execute claim_allocation message

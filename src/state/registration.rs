@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Addr, Timestamp, Storage, StdResult};
-use secret_toolkit_storage::Keymap;
+use secret_toolkit_storage::{Keymap, Item};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Registration {
@@ -53,3 +53,6 @@ impl<'a> DualKeymap<'a> {
 }
 
 pub const REGISTRATIONS: DualKeymap = DualKeymap::new();
+
+// Counter for brand new registrations (ID hashes that have never been registered before)
+pub const NEW_REGISTRATIONS_COUNT: Item<u32> = Item::new(b"new_registrations_count");

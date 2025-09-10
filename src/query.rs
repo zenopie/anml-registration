@@ -1,8 +1,8 @@
 // src/query/mod.rs
 use cosmwasm_std::{Deps, Env, Binary, StdResult, to_binary, Timestamp,};
-use crate::msg::{QueryMsg, RegistrationStatusResponse};
+use crate::msg::{QueryMsg, RegistrationStatusResponse, StateResponse};
 use crate::state::{USER_ALLOCATIONS, AllocationPercentage, ALLOCATION_OPTIONS, Allocation,
-    STATE, State, Config, CONFIG, REGISTRATIONS, Registration};
+    STATE, Config, CONFIG, REGISTRATIONS, Registration, NEW_REGISTRATIONS_COUNT};
 
 
 pub fn query_dispatch(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
@@ -16,9 +16,19 @@ pub fn query_dispatch(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> 
     }
 }
 
-fn query_state(deps: Deps) -> StdResult<State> {
+fn query_state(deps: Deps) -> StdResult<StateResponse> {
     let state = STATE.load(deps.storage)?;
-    Ok(state)
+    let new_registrations = NEW_REGISTRATIONS_COUNT.may_load(deps.storage)?.unwrap_or(0);
+    
+    Ok(StateResponse {
+        registrations: state.registrations,
+        new_registrations,
+        last_anml_buyback: state.last_anml_buyback,
+        total_allocations: state.total_allocations,
+        allocation_counter: state.allocation_counter,
+        registration_reward: state.registration_reward,
+        last_upkeep: state.last_upkeep,
+    })
 }
 
 fn query_config(deps: Deps) -> StdResult<Config> {
