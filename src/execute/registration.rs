@@ -81,9 +81,9 @@ pub fn register(
 
         // Subtract the total reward from state.registration_reward
         let total_reward = if affiliate.is_some() {
-            reward * 2 // 1% to registree, 1% to affiliate
+            reward * 2 // .1% to registree, .1% to affiliate
         } else {
-            reward // 1% to registree
+            reward // .1% to registree
         };
         state.registration_reward = Uint128::from(state.registration_reward.u128().saturating_sub(total_reward));
 
@@ -103,7 +103,7 @@ pub fn register(
             }),
         );
 
-        // If there's an affiliate, send them 1% as well
+        // If there's an affiliate, send them .1% as well
         if let Some(affiliate_address) = affiliate {
             let affiliate_addr = deps.api.addr_validate(&affiliate_address)?;
             messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
