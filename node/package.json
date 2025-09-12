@@ -1,9 +1,0 @@
-{
-  "name": "erth-staking",
-  "version": "1.0.0",
-  "description": "ERTH staking interactions",
-  "main": "mainnet.js",
-  "dependencies": {
-    "secretjs": "^1.15.1"
-  }
-}
