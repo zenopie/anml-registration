@@ -9,7 +9,6 @@ pub struct Config {
     pub registration_address: Addr,
     pub registration_wallet: Addr,
     pub contract_manager: Addr,
-    //pub max_registrations: u32,
     pub registration_validity_seconds: u64,
     pub anml_token_contract: Addr,
     pub anml_token_hash: String,

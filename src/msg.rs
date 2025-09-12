@@ -97,6 +97,7 @@ pub enum QueryMsg {
 pub struct RegistrationStatusResponse {
     pub registration_status: bool,
     pub last_claim: Timestamp,
+    pub registration_reward: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, JsonSchema)]

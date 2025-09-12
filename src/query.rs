@@ -62,6 +62,7 @@ fn check_registration_validity(
 pub fn query_registration_status(deps: Deps, env: Env, address: String) -> StdResult<RegistrationStatusResponse> {
     let addr = deps.api.addr_validate(&address)?;
     let config = CONFIG.load(deps.storage)?;
+    let state = STATE.load(deps.storage)?;
     let current_time = env.block.time;
 
     // Retrieve the registration data by address
@@ -73,12 +74,14 @@ pub fn query_registration_status(deps: Deps, env: Env, address: String) -> StdRe
     Ok(RegistrationStatusResponse {
         registration_status,
         last_claim,
+        registration_reward: state.registration_reward,
     })
 }
 
 // New query function to get status by ID hash
 pub fn query_registration_status_by_id_hash(deps: Deps, env: Env, id_hash: String) -> StdResult<RegistrationStatusResponse> {
     let config = CONFIG.load(deps.storage)?;
+    let state = STATE.load(deps.storage)?;
     let current_time = env.block.time;
 
     // Retrieve the registration data by hash using your DualKeymap
@@ -90,6 +93,7 @@ pub fn query_registration_status_by_id_hash(deps: Deps, env: Env, id_hash: Strin
     Ok(RegistrationStatusResponse {
         registration_status,
         last_claim,
+        registration_reward: state.registration_reward,
     })
 }
 
