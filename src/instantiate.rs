@@ -10,11 +10,9 @@ pub fn execute_instantiate(
     msg: InstantiateMsg,
 ) -> StdResult<Response> {
     let registration_address_addr = deps.api.addr_validate(&msg.registration_address)?;
-    let anml_token_contract_addr = deps.api.addr_validate(&msg.anml_token_contract)?;
-    let erth_token_contract_addr = deps.api.addr_validate(&msg.erth_token_contract)?;
     let contract_manager_addr = deps.api.addr_validate(&msg.contract_manager)?;
-    let anml_pool_contract_addr = deps.api.addr_validate(&msg.anml_pool_contract)?;
     let registration_wallet_addr = deps.api.addr_validate(&msg.registration_wallet)?;
+    let registry_contract_addr = deps.api.addr_validate(&msg.registry_contract)?;
 
     let state = State {
         registrations: 0,
@@ -23,6 +21,8 @@ pub fn execute_instantiate(
         allocation_counter: 0,
         registration_reward: Uint128::zero(),
         last_upkeep: env.block.time,
+        reward_index: Uint128::zero(),
+        epoch: 0,
     };
 
     let config = Config {
@@ -30,12 +30,8 @@ pub fn execute_instantiate(
         registration_address: registration_address_addr,
         registration_wallet: registration_wallet_addr,
         registration_validity_seconds: 60 * 60 * 24 * 30, // 30 days
-        anml_token_contract: anml_token_contract_addr,
-        anml_token_hash: msg.anml_token_hash,
-        erth_token_contract: erth_token_contract_addr,
-        erth_token_hash: msg.erth_token_hash,
-        anml_pool_contract: anml_pool_contract_addr,
-        anml_pool_hash: msg.anml_pool_hash,
+        registry_contract: registry_contract_addr,
+        registry_hash: msg.registry_hash,
     };
 
     STATE.save(deps.storage, &state)?;

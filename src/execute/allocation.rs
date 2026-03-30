@@ -1,10 +1,31 @@
 // src/execute/allocation.rs
 use cosmwasm_std::{DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, Addr, to_binary, CosmosMsg, WasmMsg, Timestamp};
-use crate::state::{ALLOCATION_OPTIONS, USER_ALLOCATIONS, State, CONFIG, Allocation, AllocationConfig, AllocationPercentage,
-    AllocationState, STATE, REGISTRATIONS};
+use crate::state::{ALLOCATION_OPTIONS, ALLOCATION_IDS, USER_ALLOCATIONS, State, CONFIG, Allocation, AllocationConfig, AllocationPercentage,
+    AllocationState, STATE, REGISTRATIONS, UserAllocations, MAX_DESCRIPTION_LENGTH, query_registry};
 use crate::msg::SendMsg;
 use secret_toolkit::snip20::{HandleMsg};
 
+const INDEX_PRECISION: u128 = 1_000_000_000_000;
+const REWARD_RATE: u128 = 1_000_000; // 1 ERTH per second (6 decimal places)
+
+pub fn update_reward_index(state: &mut State, current_time: Timestamp) {
+    let time_elapsed = current_time.seconds().saturating_sub(state.last_upkeep.seconds());
+    if time_elapsed > 0 && !state.total_allocations.is_zero() {
+        let new_rewards = Uint128::from(time_elapsed) * Uint128::from(REWARD_RATE);
+        state.reward_index = state.reward_index +
+            (new_rewards * Uint128::from(INDEX_PRECISION) / state.total_allocations);
+    }
+    state.last_upkeep = current_time;
+}
+
+fn settle_allocation(allocation_state: &mut AllocationState, reward_index: Uint128) {
+    if !allocation_state.amount_allocated.is_zero() {
+        let delta = reward_index - allocation_state.last_reward_index;
+        let pending = allocation_state.amount_allocated * delta / Uint128::from(INDEX_PRECISION);
+        allocation_state.accumulated_rewards = allocation_state.accumulated_rewards + pending;
+    }
+    allocation_state.last_reward_index = reward_index;
+}
 
 pub fn set_allocation(
     deps: DepsMut,
@@ -25,65 +46,45 @@ pub fn set_allocation(
         return Err(StdError::generic_err("User not registered"));
     }
 
-    let old_user_allocations = USER_ALLOCATIONS.get(deps.storage, &info.sender).unwrap_or_default();
-
-    // Load allocation options and state
-    let mut allocation_options = ALLOCATION_OPTIONS.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
 
-    // Subtract the old allocations using the helper function
-    subtract_old_allocations(&old_user_allocations, &mut allocation_options, &mut state)?;
+    // Update global reward index
+    update_reward_index(&mut state, env.block.time);
 
-    // Add the new allocations using the helper function
-    add_new_allocations(&percentages, &mut allocation_options, &mut state)?;
+    // Load old user allocations, checking epoch
+    let old_user_data = USER_ALLOCATIONS.get(deps.storage, &info.sender).unwrap_or_default();
+    let old_allocations = if old_user_data.epoch == state.epoch {
+        old_user_data.allocations
+    } else {
+        vec![]
+    };
 
-    // Save the updated user info back to storage
-    USER_ALLOCATIONS.insert(deps.storage, &info.sender, &percentages)?;
-
-    // Save the updated allocation options and state
-    ALLOCATION_OPTIONS.save(deps.storage, &allocation_options)?;
-    STATE.save(deps.storage, &state)?;
-
-    Ok(Response::default())
-}
-
-fn subtract_old_allocations(
-    old_percentages: &[AllocationPercentage],
-    allocation_options: &mut Vec<Allocation>,
-    state: &mut State,
-) -> StdResult<()> {
-    for old_percent in old_percentages {
-        for allocation_option in allocation_options.iter_mut() {
-            if old_percent.allocation_id == allocation_option.state.allocation_id {
-                allocation_option.state.amount_allocated = allocation_option.state.amount_allocated.checked_sub(old_percent.percentage)
-                    .map_err(|_| StdError::generic_err("Underflow in allocation subtraction"))?;
-                state.total_allocations = state.total_allocations.checked_sub(old_percent.percentage)
-                    .map_err(|_| StdError::generic_err("Underflow in total allocations"))?;
-            }
+    // Subtract old allocations
+    for old_pct in &old_allocations {
+        if let Some(mut allocation) = ALLOCATION_OPTIONS.get(deps.storage, &old_pct.allocation_id) {
+            settle_allocation(&mut allocation.state, state.reward_index);
+            allocation.state.amount_allocated = allocation.state.amount_allocated.checked_sub(old_pct.percentage)
+                .map_err(|_| StdError::generic_err("Underflow in allocation subtraction"))?;
+            state.total_allocations = state.total_allocations.checked_sub(old_pct.percentage)
+                .map_err(|_| StdError::generic_err("Underflow in total allocations"))?;
+            ALLOCATION_OPTIONS.insert(deps.storage, &old_pct.allocation_id, &allocation)?;
         }
     }
-    Ok(())
-}
 
-fn add_new_allocations(
-    percentages: &[AllocationPercentage],
-    allocation_options: &mut Vec<Allocation>,
-    state: &mut State,
-) -> StdResult<()> {
+    // Add new allocations and validate
     let mut total_percentage = Uint128::zero();
-
-    for percentage in percentages {
-        if percentage.percentage > Uint128::zero() {
-            for allocation in allocation_options.iter_mut() {
-                if percentage.allocation_id == allocation.state.allocation_id {
-                    allocation.state.amount_allocated = allocation.state.amount_allocated.checked_add(percentage.percentage)
-                        .map_err(|_| StdError::generic_err("Overflow in allocation addition"))?;
-                    state.total_allocations = state.total_allocations.checked_add(percentage.percentage)
-                        .map_err(|_| StdError::generic_err("Overflow in total allocations"))?;
-                    total_percentage = total_percentage.checked_add(percentage.percentage)
-                        .map_err(|_| StdError::generic_err("Overflow in total percentage"))?;
-                }
-            }
+    for new_pct in &percentages {
+        if new_pct.percentage > Uint128::zero() {
+            let mut allocation = ALLOCATION_OPTIONS.get(deps.storage, &new_pct.allocation_id)
+                .ok_or_else(|| StdError::generic_err("Allocation not found"))?;
+            settle_allocation(&mut allocation.state, state.reward_index);
+            allocation.state.amount_allocated = allocation.state.amount_allocated.checked_add(new_pct.percentage)
+                .map_err(|_| StdError::generic_err("Overflow in allocation addition"))?;
+            state.total_allocations = state.total_allocations.checked_add(new_pct.percentage)
+                .map_err(|_| StdError::generic_err("Overflow in total allocations"))?;
+            total_percentage = total_percentage.checked_add(new_pct.percentage)
+                .map_err(|_| StdError::generic_err("Overflow in total percentage"))?;
+            ALLOCATION_OPTIONS.insert(deps.storage, &new_pct.allocation_id, &allocation)?;
         }
     }
 
@@ -92,96 +93,34 @@ fn add_new_allocations(
         return Err(StdError::generic_err("Percentage error: allocations must sum to 100%"));
     }
 
-    Ok(())
-}
+    // Save user allocations with current epoch
+    USER_ALLOCATIONS.insert(deps.storage, &info.sender, &UserAllocations {
+        epoch: state.epoch,
+        allocations: percentages,
+    })?;
 
-// Helper function for distributing allocation rewards
-pub fn distribute_allocation_rewards(
-    deps: &mut DepsMut,
-    current_time: Timestamp,
-) -> StdResult<(Uint128, u64, bool)> {
-    // Constants for rewards
-    let reward_rate_per_second: Uint128 = Uint128::from(1_000_000u128); // 1,000,000 ERTH per second (1 ERTH)
-    
-    // Load state to get last_upkeep
-    let mut state = STATE.load(deps.storage)?;
-    
-    // Calculate time elapsed since last upkeep
-    let time_elapsed = current_time.seconds().checked_sub(state.last_upkeep.seconds())
-        .unwrap_or(0);
-    
-    // If no time has elapsed, return early
-    if time_elapsed == 0 {
-        return Ok((Uint128::zero(), 0, false));
-    }
-    
-    // Load allocation options
-    let mut allocation_options = ALLOCATION_OPTIONS.load(deps.storage)?;
-    
-    // If there are no allocations, return early
-    if allocation_options.is_empty() {
-        // Update last_upkeep time
-        state.last_upkeep = current_time;
-        STATE.save(deps.storage, &state)?;
-        return Ok((Uint128::zero(), time_elapsed, false));
-    }
-    
-    // Calculate total rewards for the period
-    let total_rewards_for_period = reward_rate_per_second * Uint128::from(time_elapsed);
-    
-    // Calculate total allocation amount from loaded options
-    let calculated_total_allocations: Uint128 = allocation_options
-        .iter()
-        .fold(Uint128::zero(), |acc, allocation| acc + allocation.state.amount_allocated);
-    
-    // If calculated total is zero, return early
-    if calculated_total_allocations.is_zero() {
-        // Update last_upkeep time
-        state.last_upkeep = current_time;
-        STATE.save(deps.storage, &state)?;
-        return Ok((Uint128::zero(), time_elapsed, false));
-    }
-    
-    // Distribute rewards to each allocation based on their proportion of the total
-    for allocation in allocation_options.iter_mut() {
-        // Calculate this allocation's share of rewards
-        let allocation_share = allocation.state.amount_allocated
-            * total_rewards_for_period
-            / calculated_total_allocations;
-        
-        // Add to accumulated rewards
-        allocation.state.accumulated_rewards = allocation.state.accumulated_rewards
-            .checked_add(allocation_share)
-            .map_err(|_| StdError::generic_err("Overflow in accumulated rewards"))?;
-    }
-    
-    // Update last_upkeep time
-    state.last_upkeep = current_time;
-    
-    // Save the updated allocations and state
-    ALLOCATION_OPTIONS.save(deps.storage, &allocation_options)?;
     STATE.save(deps.storage, &state)?;
-    
-    // Return the total rewards distributed, time elapsed, and success flag
-    Ok((total_rewards_for_period, time_elapsed, true))
+
+    Ok(Response::default())
 }
 
 pub fn claim_allocation(
-    mut deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     allocation_id: u32,
 ) -> StdResult<Response> {
-    // Load the current state
     let config = CONFIG.load(deps.storage)?;
-    
-    // Distribute rewards before processing the claim
-    let (total_rewards_distributed, time_elapsed, rewards_distributed) = distribute_allocation_rewards(&mut deps, env.block.time)?;
-    
-    // Find the allocation by ID
-    let mut allocation_options = ALLOCATION_OPTIONS.load(deps.storage)?;
-    let allocation = allocation_options.iter_mut().find(|alloc| alloc.state.allocation_id == allocation_id)
+    let mut state = STATE.load(deps.storage)?;
+
+    // Update global reward index
+    update_reward_index(&mut state, env.block.time);
+
+    // Load and settle the specific allocation
+    let mut allocation = ALLOCATION_OPTIONS.get(deps.storage, &allocation_id)
         .ok_or_else(|| StdError::generic_err("Allocation not found"))?;
+
+    settle_allocation(&mut allocation.state, state.reward_index);
 
     // If there's a claimer address, check that the info.sender is the claimer
     if let Some(claimer_addr) = &allocation.config.claimer_addr {
@@ -192,13 +131,23 @@ pub fn claim_allocation(
 
     // Get the accumulated rewards for this allocation
     let allocation_share = allocation.state.accumulated_rewards;
-    
+
     // Reset accumulated rewards after claiming
     allocation.state.accumulated_rewards = Uint128::zero();
-    
+
     // Update the claim time
     allocation.state.last_claim = env.block.time;
-    
+
+    // Query registry for erth_token
+    let deps_ref = deps.as_ref();
+    let contracts = query_registry(
+        &deps_ref,
+        &config.registry_contract,
+        &config.registry_hash,
+        vec!["erth_token"],
+    )?;
+    let erth_token = &contracts[0];
+
     let mut messages = Vec::new();
 
     // Prepare the minting message based on the `use_send` flag
@@ -211,12 +160,12 @@ pub fn claim_allocation(
             memo: None,
         };
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.erth_token_contract.to_string(),
-            code_hash: config.erth_token_hash.clone(),
+            contract_addr: erth_token.address.to_string(),
+            code_hash: erth_token.code_hash.clone(),
             msg: to_binary(&mint_msg)?,
             funds: vec![],
         }));
-        
+
         let send_msg = if let Some(receive_hash) = &allocation.config.receive_hash {
             HandleMsg::Send {
                 recipient: allocation.config.receive_addr.to_string(),
@@ -233,8 +182,8 @@ pub fn claim_allocation(
         };
 
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.erth_token_contract.to_string(),
-            code_hash: config.erth_token_hash.clone(),
+            contract_addr: erth_token.address.to_string(),
+            code_hash: erth_token.code_hash.clone(),
             msg: to_binary(&send_msg)?,
             funds: vec![],
         }));
@@ -247,30 +196,22 @@ pub fn claim_allocation(
             memo: None,
         };
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.erth_token_contract.to_string(),
-            code_hash: config.erth_token_hash.clone(),
+            contract_addr: erth_token.address.to_string(),
+            code_hash: erth_token.code_hash.clone(),
             msg: to_binary(&mint_msg)?,
             funds: vec![],
         }));
     };
 
-    // Save the updated allocations
-    ALLOCATION_OPTIONS.save(deps.storage, &allocation_options)?;
+    // Save the updated allocation and state
+    ALLOCATION_OPTIONS.insert(deps.storage, &allocation_id, &allocation)?;
+    STATE.save(deps.storage, &state)?;
 
-    // Return the response with the mint message
-    let response = Response::new()
+    Ok(Response::new()
         .add_messages(messages)
         .add_attribute("action", "claim_allocation")
         .add_attribute("allocation_id", allocation_id.to_string())
-        .add_attribute("allocation_share", allocation_share.to_string());
-        
-    if rewards_distributed {
-        Ok(response
-            .add_attribute("rewards_distributed", total_rewards_distributed.to_string())
-            .add_attribute("time_elapsed", time_elapsed.to_string()))
-    } else {
-        Ok(response)
-    }
+        .add_attribute("allocation_share", allocation_share.to_string()))
 }
 
 pub fn edit_allocation(
@@ -279,14 +220,9 @@ pub fn edit_allocation(
     allocation_id: u32,
     allocation_config: AllocationConfig,
 ) -> StdResult<Response> {
-    // Load the current config
     let config = CONFIG.load(deps.storage)?;
 
-    // Load allocation options from storage
-    let mut allocations = ALLOCATION_OPTIONS.load(deps.storage)?;
-
-    // Find the allocation by ID
-    let allocation = allocations.iter_mut().find(|alloc| alloc.state.allocation_id == allocation_id)
+    let mut allocation = ALLOCATION_OPTIONS.get(deps.storage, &allocation_id)
         .ok_or_else(|| StdError::generic_err("Allocation not found"))?;
 
     // Check if the sender is authorized to edit the allocation
@@ -300,10 +236,13 @@ pub fn edit_allocation(
         }
     }
 
+    if allocation_config.description.len() > MAX_DESCRIPTION_LENGTH {
+        return Err(StdError::generic_err(format!("Description exceeds max length of {}", MAX_DESCRIPTION_LENGTH)));
+    }
+
     allocation.config = allocation_config;
 
-    // Save the updated allocation options back to storage
-    ALLOCATION_OPTIONS.save(deps.storage, &allocations)?;
+    ALLOCATION_OPTIONS.insert(deps.storage, &allocation_id, &allocation)?;
 
     Ok(Response::new()
         .add_attribute("action", "edit_allocation")
@@ -314,55 +253,90 @@ pub fn add_allocation(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    receive_addr: Addr, 
-    receive_hash: Option<String>, 
-    manager_addr: Option<Addr>, 
-    claimer_addr: Option<Addr>, 
-    use_send: bool, 
+    description: String,
+    receive_addr: Addr,
+    receive_hash: Option<String>,
+    manager_addr: Option<Addr>,
+    claimer_addr: Option<Addr>,
+    use_send: bool,
 ) -> StdResult<Response> {
-
-    // Load the current config and state
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
 
-    // Check if the sender is the contract manager
     if info.sender != config.contract_manager {
         return Err(StdError::generic_err("Unauthorized: Only the contract manager can add an allocation"));
     }
 
-    // Load allocation options, or use an empty Vec if it doesn't exist
-    let mut allocation_options = ALLOCATION_OPTIONS.load(deps.storage).unwrap_or_else(|_| Vec::new());
-    
+    if description.len() > MAX_DESCRIPTION_LENGTH {
+        return Err(StdError::generic_err(format!("Description exceeds max length of {}", MAX_DESCRIPTION_LENGTH)));
+    }
+
     state.allocation_counter += 1;
 
-    // Create a new allocation
-    let allocation_state = AllocationState {
-        allocation_id: state.allocation_counter,
-        amount_allocated: Uint128::zero(),
-        last_claim: env.block.time,
-        accumulated_rewards: Uint128::zero(),
-    };
-
-    let allocation_config = AllocationConfig {
-        receive_addr,
-        receive_hash,
-        manager_addr,
-        claimer_addr,
-        use_send,
-    };
-
     let allocation = Allocation {
-        state: allocation_state,
-        config: allocation_config,
+        state: AllocationState {
+            allocation_id: state.allocation_counter,
+            amount_allocated: Uint128::zero(),
+            last_claim: env.block.time,
+            accumulated_rewards: Uint128::zero(),
+            last_reward_index: state.reward_index,
+        },
+        config: AllocationConfig {
+            description,
+            receive_addr,
+            receive_hash,
+            manager_addr,
+            claimer_addr,
+            use_send,
+        },
     };
 
-    // Add the new allocation to the list
-    allocation_options.push(allocation);
+    ALLOCATION_OPTIONS.insert(deps.storage, &state.allocation_counter, &allocation)?;
 
-    // Save the updated allocation options and state
-    ALLOCATION_OPTIONS.save(deps.storage, &allocation_options)?;
+    // Add to ID list
+    let mut ids = ALLOCATION_IDS.load(deps.storage).unwrap_or_default();
+    ids.push(state.allocation_counter);
+    ALLOCATION_IDS.save(deps.storage, &ids)?;
+
     STATE.save(deps.storage, &state)?;
 
     Ok(Response::new()
         .add_attribute("action", "add_allocation"))
+}
+
+pub fn reset_allocations(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> StdResult<Response> {
+    let config = CONFIG.load(deps.storage)?;
+
+    if info.sender != config.contract_manager {
+        return Err(StdError::generic_err("Unauthorized: Only the contract manager can reset allocations"));
+    }
+
+    let mut state = STATE.load(deps.storage)?;
+
+    // Update global reward index one final time
+    update_reward_index(&mut state, env.block.time);
+
+    // Iterate all allocations: settle pending rewards, zero amount_allocated
+    let ids = ALLOCATION_IDS.load(deps.storage).unwrap_or_default();
+    for id in &ids {
+        if let Some(mut allocation) = ALLOCATION_OPTIONS.get(deps.storage, id) {
+            settle_allocation(&mut allocation.state, state.reward_index);
+            allocation.state.amount_allocated = Uint128::zero();
+            ALLOCATION_OPTIONS.insert(deps.storage, id, &allocation)?;
+        }
+    }
+
+    // Reset total allocations and increment epoch
+    state.total_allocations = Uint128::zero();
+    state.epoch += 1;
+
+    STATE.save(deps.storage, &state)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "reset_allocations")
+        .add_attribute("epoch", state.epoch.to_string()))
 }

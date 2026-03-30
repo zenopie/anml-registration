@@ -9,12 +9,8 @@ pub struct InstantiateMsg {
     pub registration_address: String,
     pub registration_wallet: String,
     pub contract_manager: String,
-    pub anml_token_contract: String,
-    pub anml_token_hash: String,
-    pub erth_token_contract: String,
-    pub erth_token_hash: String,
-    pub anml_pool_contract: String,
-    pub anml_pool_hash: String,
+    pub registry_contract: String,
+    pub registry_hash: String,
 }
 
 
@@ -37,6 +33,7 @@ pub enum ExecuteMsg {
         allocation_id: u32,
     },
     AddAllocation {
+        description: String,
         receive_addr: Addr,
         receive_hash: Option<String>,
         manager_addr: Option<Addr>,
@@ -47,6 +44,7 @@ pub enum ExecuteMsg {
         allocation_id: u32,
         config: AllocationConfig,
     },
+    ResetAllocations {},
     Receive {
         sender: Addr,
         from: Addr,
@@ -79,7 +77,10 @@ pub enum SendMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrateMsg {
-    Migrate {},
+    Migrate {
+        registry_contract: String,
+        registry_hash: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -109,4 +110,6 @@ pub struct StateResponse {
     pub allocation_counter: u32,
     pub registration_reward: Uint128,
     pub last_upkeep: Timestamp,
+    pub reward_index: Uint128,
+    pub epoch: u32,
 }

@@ -3,7 +3,7 @@ use cosmwasm_std::{
     to_binary,
 };
 use secret_toolkit::snip20::{self, HandleMsg};
-use crate::state::{CONFIG, STATE, REGISTRATIONS, Registration, NEW_REGISTRATIONS_COUNT};
+use crate::state::{CONFIG, STATE, REGISTRATIONS, Registration, NEW_REGISTRATIONS_COUNT, query_registry};
 use crate::msg::SendMsg;
 
 pub fn register(
@@ -69,6 +69,17 @@ pub fn register(
     // Increment registration count
     state.registrations += 1;
 
+    // Query registry for contract references
+    let deps_ref = deps.as_ref();
+    let contracts = query_registry(
+        &deps_ref,
+        &config.registry_contract,
+        &config.registry_hash,
+        vec!["erth_token", "anml_token"],
+    )?;
+    let erth_token = &contracts[0];
+    let anml_token = &contracts[1];
+
     // Track new registrations and calculate rewards only for brand new ID hashes
     let mut messages = vec![];
     if is_new_id_hash {
@@ -91,8 +102,8 @@ pub fn register(
         messages.push(
             // Transfer reward to registrant (registree_address)
             CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.erth_token_contract.to_string(),
-                code_hash: config.erth_token_hash.clone(),
+                contract_addr: erth_token.address.to_string(),
+                code_hash: erth_token.code_hash.clone(),
                 msg: to_binary(&snip20::HandleMsg::Transfer {
                     recipient: wallet_address_addr.to_string(),
                     amount: Uint128::from(reward),
@@ -107,8 +118,8 @@ pub fn register(
         if let Some(affiliate_address) = affiliate {
             let affiliate_addr = deps.api.addr_validate(&affiliate_address)?;
             messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.erth_token_contract.to_string(),
-                code_hash: config.erth_token_hash.clone(),
+                contract_addr: erth_token.address.to_string(),
+                code_hash: erth_token.code_hash.clone(),
                 msg: to_binary(&snip20::HandleMsg::Transfer {
                     recipient: affiliate_addr.to_string(),
                     amount: Uint128::from(reward),
@@ -129,8 +140,8 @@ pub fn register(
         memo: None,
     };
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.anml_token_contract.to_string(),
-        code_hash: config.anml_token_hash.clone(),
+        contract_addr: anml_token.address.to_string(),
+        code_hash: anml_token.code_hash.clone(),
         msg: to_binary(&mint_anml)?,
         funds: vec![],
     }));

@@ -2,13 +2,13 @@ use cosmwasm_std::{
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Timestamp, CosmosMsg, WasmMsg,
     to_binary,
 };
-use crate::state::{REGISTRATIONS, CONFIG, STATE}; // Updated import
+use crate::state::{REGISTRATIONS, CONFIG, STATE, query_registry};
 use crate::msg::SendMsg;
 use secret_toolkit::snip20::HandleMsg;
-use crate::execute::allocation::distribute_allocation_rewards;
+use crate::execute::allocation::update_reward_index;
 
 pub fn claim_anml(
-    mut deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
 ) -> StdResult<Response> {
@@ -34,9 +34,9 @@ pub fn claim_anml(
             ));
         }
 
-        // Distribute allocation rewards before processing the claim
-        let (total_rewards_distributed, time_elapsed, rewards_distributed) = 
-            distribute_allocation_rewards(&mut deps, env.block.time)?;
+        // Update global reward index (O(1) - no allocation iteration)
+        let mut state = STATE.load(deps.storage)?;
+        update_reward_index(&mut state, env.block.time);
 
         // Set last_anml_claim to midnight of the current day
         let midnight_timestamp = Timestamp::from_seconds(
@@ -52,7 +52,17 @@ pub fn claim_anml(
             registration.clone()
         )?;
 
-        let mut state = STATE.load(deps.storage)?;
+        // Query registry for contract references
+        let deps_ref = deps.as_ref();
+        let contracts = query_registry(
+            &deps_ref,
+            &config.registry_contract,
+            &config.registry_hash,
+            vec!["erth_token", "anml_token", "exchange"],
+        )?;
+        let erth_token = &contracts[0];
+        let anml_token = &contracts[1];
+        let exchange = &contracts[2];
 
         let buyback_amount = (env.block.time.seconds() - state.last_anml_buyback.seconds()) * 1_000_000;
 
@@ -68,24 +78,24 @@ pub fn claim_anml(
             memo: None,
         };
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.erth_token_contract.to_string(),
-            code_hash: config.erth_token_hash.clone(),
+            contract_addr: erth_token.address.to_string(),
+            code_hash: erth_token.code_hash.clone(),
             msg: to_binary(&mint_erth)?,
             funds: vec![],
         }));
 
         // Swap Erth for ANML
         let swap_msg = HandleMsg::Send {
-            recipient: config.anml_pool_contract.to_string(),
-            recipient_code_hash: Some(config.anml_pool_hash.clone()),
+            recipient: exchange.address.to_string(),
+            recipient_code_hash: Some(exchange.code_hash.clone()),
             amount: buyback_amount.into(),
             msg: Some(to_binary(&SendMsg::AnmlBuybackSwap {})?),
             memo: None,
             padding: None,
         };
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.erth_token_contract.to_string(),
-            code_hash: config.erth_token_hash.clone(),
+            contract_addr: erth_token.address.to_string(),
+            code_hash: erth_token.code_hash.clone(),
             msg: to_binary(&swap_msg)?,
             funds: vec![],
         }));
@@ -101,25 +111,16 @@ pub fn claim_anml(
             memo: None,
         };
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.anml_token_contract.to_string(),
-            code_hash: config.anml_token_hash.clone(),
+            contract_addr: anml_token.address.to_string(),
+            code_hash: anml_token.code_hash.clone(),
             msg: to_binary(&mint_anml)?,
             funds: vec![],
         }));
 
-        let mut response = Response::new()
+        Ok(Response::new()
             .add_messages(messages)
             .add_attribute("action", "claim")
-            .add_attribute("buyback_amount", buyback_amount.to_string());
-
-        // Add allocation distribution information if rewards were distributed
-        if rewards_distributed {
-            response = response
-                .add_attribute("rewards_distributed", total_rewards_distributed.to_string())
-                .add_attribute("time_elapsed", time_elapsed.to_string());
-        }
-
-        Ok(response)
+            .add_attribute("buyback_amount", buyback_amount.to_string()))
     } else {
         Err(StdError::generic_err("User not registered"))
     }

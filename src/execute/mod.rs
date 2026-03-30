@@ -21,8 +21,9 @@ pub fn execute_dispatch(
         ExecuteMsg::SetAllocation { percentages } => allocation::set_allocation(deps, env, info, percentages),
         ExecuteMsg::ClaimAllocation { allocation_id } => allocation::claim_allocation(deps, env, info, allocation_id),
         ExecuteMsg::EditAllocation { allocation_id, config } => allocation::edit_allocation(deps, info, allocation_id, config),
-        ExecuteMsg::AddAllocation { receive_addr, receive_hash, manager_addr, claimer_addr, use_send } => 
-            allocation::add_allocation(deps, env, info, receive_addr, receive_hash, manager_addr, claimer_addr, use_send),
+        ExecuteMsg::ResetAllocations {} => allocation::reset_allocations(deps, env, info),
+        ExecuteMsg::AddAllocation { description, receive_addr, receive_hash, manager_addr, claimer_addr, use_send } =>
+            allocation::add_allocation(deps, env, info, description, receive_addr, receive_hash, manager_addr, claimer_addr, use_send),
         ExecuteMsg::Receive { sender, from, amount, msg, memo: _ } => 
             receive::receive(deps, env, info, sender, from, amount, msg),
     }

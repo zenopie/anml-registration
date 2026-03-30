@@ -1,7 +1,7 @@
 // src/query/mod.rs
 use cosmwasm_std::{Deps, Env, Binary, StdResult, to_binary, Timestamp,};
 use crate::msg::{QueryMsg, RegistrationStatusResponse, StateResponse};
-use crate::state::{USER_ALLOCATIONS, AllocationPercentage, ALLOCATION_OPTIONS, Allocation,
+use crate::state::{USER_ALLOCATIONS, AllocationPercentage, ALLOCATION_OPTIONS, ALLOCATION_IDS, Allocation,
     STATE, Config, CONFIG, REGISTRATIONS, Registration, NEW_REGISTRATIONS_COUNT};
 
 
@@ -19,7 +19,7 @@ pub fn query_dispatch(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> 
 fn query_state(deps: Deps) -> StdResult<StateResponse> {
     let state = STATE.load(deps.storage)?;
     let new_registrations = NEW_REGISTRATIONS_COUNT.may_load(deps.storage)?.unwrap_or(0);
-    
+
     Ok(StateResponse {
         registrations: state.registrations,
         new_registrations,
@@ -28,6 +28,8 @@ fn query_state(deps: Deps) -> StdResult<StateResponse> {
         allocation_counter: state.allocation_counter,
         registration_reward: state.registration_reward,
         last_upkeep: state.last_upkeep,
+        reward_index: state.reward_index,
+        epoch: state.epoch,
     })
 }
 
@@ -99,19 +101,23 @@ pub fn query_registration_status_by_id_hash(deps: Deps, env: Env, id_hash: Strin
 
 
 fn query_allocation_options(deps: Deps) -> StdResult<Vec<Allocation>> {
-
-    // Load allocations options
-    let allocations = ALLOCATION_OPTIONS.load(deps.storage)?;
-
+    let ids = ALLOCATION_IDS.load(deps.storage).unwrap_or_default();
+    let mut allocations = Vec::new();
+    for id in ids {
+        if let Some(allocation) = ALLOCATION_OPTIONS.get(deps.storage, &id) {
+            allocations.push(allocation);
+        }
+    }
     Ok(allocations)
 }
 
 pub fn query_user_allocations(deps: Deps, address: String) -> StdResult<Vec<AllocationPercentage>> {
-
     let addr = deps.api.addr_validate(&address)?;
-
-    // Load user info or use default if not found
-    let allocation_percentages = USER_ALLOCATIONS.get(deps.storage, &addr).unwrap_or_default();
-
-    Ok(allocation_percentages)
+    let state = STATE.load(deps.storage)?;
+    let user_data = USER_ALLOCATIONS.get(deps.storage, &addr).unwrap_or_default();
+    if user_data.epoch == state.epoch {
+        Ok(user_data.allocations)
+    } else {
+        Ok(vec![])
+    }
 }

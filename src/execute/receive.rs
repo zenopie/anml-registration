@@ -1,7 +1,7 @@
 // src/execute/receive.rs
 use cosmwasm_std::{DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, Addr,
     Binary, from_binary};
-use crate::state::{CONFIG, STATE};
+use crate::state::{CONFIG, STATE, query_registry};
 use crate::msg::ReceiveMsg;
 
 pub fn receive(
@@ -17,9 +17,9 @@ pub fn receive(
     let msg: ReceiveMsg = from_binary(&msg)?;
 
     match msg {
-        ReceiveMsg::AllocationSend { allocation_id } => 
+        ReceiveMsg::AllocationSend { allocation_id } =>
             receive_allocation(deps, env, info, amount, allocation_id),
-    }   
+    }
 }
 
 fn receive_allocation(
@@ -34,7 +34,17 @@ fn receive_allocation(
     let config = CONFIG.load(deps.storage)?;
     let mut state = STATE.load(deps.storage)?;
 
-    if info.sender != config.erth_token_contract {
+    // Query registry for erth_token to verify sender
+    let deps_ref = deps.as_ref();
+    let contracts = query_registry(
+        &deps_ref,
+        &config.registry_contract,
+        &config.registry_hash,
+        vec!["erth_token"],
+    )?;
+    let erth_token = &contracts[0];
+
+    if info.sender != erth_token.address {
         return Err(StdError::generic_err("Invalid token sender"));
     }
 
