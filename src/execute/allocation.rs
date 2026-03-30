@@ -71,6 +71,14 @@ pub fn set_allocation(
         }
     }
 
+    // Check for duplicate allocation IDs
+    let mut seen_ids = std::collections::HashSet::new();
+    for pct in &percentages {
+        if !seen_ids.insert(pct.allocation_id) {
+            return Err(StdError::generic_err("Duplicate allocation ID found"));
+        }
+    }
+
     // Add new allocations and validate
     let mut total_percentage = Uint128::zero();
     for new_pct in &percentages {

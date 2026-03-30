@@ -4,7 +4,7 @@ use cosmwasm_std::{
 };
 use secret_toolkit::snip20::{self, HandleMsg};
 use crate::state::{CONFIG, STATE, REGISTRATIONS, Registration, NEW_REGISTRATIONS_COUNT, query_registry};
-use crate::msg::SendMsg;
+use crate::msg::ExecuteMsg;
 
 pub fn register(
     deps: DepsMut,
@@ -147,11 +147,11 @@ pub fn register(
     }));
 
 
-    // Execute claim_allocation message
+    // Execute claim_allocation on self
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
         code_hash: env.contract.code_hash.clone(),
-        msg: to_binary(&SendMsg::ClaimAllocation {
+        msg: to_binary(&ExecuteMsg::ClaimAllocation {
             allocation_id: 1,
         })?,
         funds: vec![],

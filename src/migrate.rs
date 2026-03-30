@@ -69,6 +69,9 @@ pub fn perform_migration(
             registry_contract,
             registry_hash,
         } => migrate_state(deps, env, registry_contract, registry_hash),
+        MigrateMsg::Upgrade {} => {
+            Ok(Response::new().add_attribute("action", "upgrade"))
+        }
     }
 }
 

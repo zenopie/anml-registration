@@ -81,6 +81,7 @@ pub enum MigrateMsg {
         registry_contract: String,
         registry_hash: String,
     },
+    Upgrade {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
