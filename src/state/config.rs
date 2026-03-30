@@ -60,11 +60,17 @@ pub fn query_registry(
     let query_msg = RegistryQueryMsg::GetContracts {
         names: names.iter().map(|n| n.to_string()).collect(),
     };
+    let expected_count = names.len();
     let response: AllContractsResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: registry_addr.to_string(),
         code_hash: registry_hash.to_string(),
         msg: to_binary(&query_msg)?,
     }))?;
+    if response.contracts.len() != expected_count {
+        return Err(cosmwasm_std::StdError::generic_err(
+            format!("Registry returned {} contracts, expected {}", response.contracts.len(), expected_count)
+        ));
+    }
     Ok(response.contracts.into_iter().map(|c| c.info).collect())
 }
 

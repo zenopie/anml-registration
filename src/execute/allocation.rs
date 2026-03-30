@@ -140,6 +140,15 @@ pub fn claim_allocation(
     // Get the accumulated rewards for this allocation
     let allocation_share = allocation.state.accumulated_rewards;
 
+    if allocation_share.is_zero() {
+        ALLOCATION_OPTIONS.insert(deps.storage, &allocation_id, &allocation)?;
+        STATE.save(deps.storage, &state)?;
+        return Ok(Response::new()
+            .add_attribute("action", "claim_allocation")
+            .add_attribute("allocation_id", allocation_id.to_string())
+            .add_attribute("allocation_share", "0"));
+    }
+
     // Reset accumulated rewards after claiming
     allocation.state.accumulated_rewards = Uint128::zero();
 
